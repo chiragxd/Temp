@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Order Management &amp; FIFO — Code Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+  :root {
+    --bg:#080b10;--surface:#0d1117;--border:#1e2d3d;
+    --red:#ff4757;--red-dim:#3d0f14;--red-mid:#7a1e26;
+    --yellow:#ffa502;--yellow-dim:#3a2600;--yellow-mid:#6b4500;
+    --blue:#1e90ff;--blue-dim:#071830;--blue-mid:#0e3560;
+    --green:#2ed573;--text:#cdd9e5;--muted:#4d6375;
+    --mono:'IBM Plex Mono',monospace;--sans:'Syne',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+  header{position:relative;padding:36px 40px 28px;border-bottom:1px solid var(--border);background:linear-gradient(160deg,#0d1420 0%,#080b10 60%);overflow:hidden;}
+  header::before{content:'';position:absolute;top:-60px;right:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,71,87,.07) 0%,transparent 70%);pointer-events:none;}
+  .header-tag{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+  h1{font-size:28px;font-weight:800;color:#e8f0f8;letter-spacing:-.5px;margin-bottom:6px;}
+  .header-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .stat{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid;}
+  .stat.red{background:var(--red-dim);border-color:var(--red-mid);color:#ff8a93;}
+  .stat.yellow{background:var(--yellow-dim);border-color:var(--yellow-mid);color:#ffc96b;}
+  .stat.blue{background:var(--blue-dim);border-color:var(--blue-mid);color:#6ab4ff;}
+  .stat .dot{width:7px;height:7px;border-radius:50%;}
+  .stat.red .dot{background:var(--red);}
+  .stat.yellow .dot{background:var(--yellow);}
+  .stat.blue .dot{background:var(--blue);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .filter-btn{padding:5px 16px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+  .filter-btn:hover{border-color:#2e4460;color:var(--text);}
+  .filter-btn.f-all{border-color:#2e4460;color:var(--text);background:#111820;}
+  .filter-btn.f-high{border-color:var(--red-mid);background:var(--red-dim);color:#ff8a93;}
+  .filter-btn.f-medium{border-color:var(--yellow-mid);background:var(--yellow-dim);color:#ffc96b;}
+  .filter-btn.f-low{border-color:var(--blue-mid);background:var(--blue-dim);color:#6ab4ff;}
+  main{max-width:1200px;margin:0 auto;padding:28px 40px 60px;}
+  .card{margin-bottom:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeUp .3s ease both;}
+  .card:hover{border-color:#2e4460;}
+  .card.open.sev-high{border-color:var(--red-mid);box-shadow:0 0 0 1px var(--red-dim);}
+  .card.open.sev-medium{border-color:var(--yellow-mid);box-shadow:0 0 0 1px var(--yellow-dim);}
+  .card.open.sev-low{border-color:var(--blue-mid);box-shadow:0 0 0 1px var(--blue-dim);}
+  .card-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .15s;}
+  .card-header:hover{background:rgba(255,255,255,.02);}
+  .badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:3px 8px;border-radius:4px;min-width:38px;text-align:center;}
+  .badge.high{background:var(--red);color:#000;}
+  .badge.medium{background:var(--yellow);color:#000;}
+  .badge.low{background:var(--blue);color:#000;}
+  .issue-num{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:24px;}
+  .issue-title{flex:1;font-size:14px;font-weight:600;color:#ddeaf8;letter-spacing:-.1px;}
+  .chevron{color:var(--muted);font-size:14px;transition:transform .2s;}
+  .card.open .chevron{transform:rotate(90deg);}
+  .card-body{padding:0 20px 20px;display:none;}
+  .card.open .card-body{display:block;}
+  .desc{border-left:3px solid;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.65;color:#8fa8bf;}
+  .sev-high .desc{border-color:var(--red);background:var(--red-dim);}
+  .sev-medium .desc{border-color:var(--yellow);background:var(--yellow-dim);}
+  .sev-low .desc{border-color:var(--blue);background:var(--blue-dim);}
+  .diff{display:flex;gap:10px;margin-bottom:12px;}
+  @media(max-width:720px){.diff{flex-direction:column;}}
+  .pane{flex:1;min-width:0;border-radius:8px;overflow:hidden;border:1px solid;display:flex;flex-direction:column;}
+  .pane.old{border-color:#3a1218;}
+  .pane.new{border-color:#0f3020;}
+  .pane-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;}
+  .pane.old .pane-hdr{background:#180a0d;border-bottom:2px solid #5a1a22;}
+  .pane.new .pane-hdr{background:#091410;border-bottom:2px solid #145230;}
+  .pane-label{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;}
+  .pane.old .pane-label{color:#f87171;}
+  .pane.new .pane-label{color:#4ade80;}
+  .copy-btn{background:transparent;border:1px solid #2e3d4a;border-radius:4px;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:10px;padding:2px 8px;transition:all .2s;}
+  .copy-btn:hover{border-color:#4d6375;color:var(--text);}
+  .copy-btn.ok{color:var(--green);border-color:var(--green);}
+  .pane-code{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;overflow-x:auto;white-space:pre-wrap;word-break:break-word;flex:1;}
+  .pane.old .pane-code{background:#100609;color:#fca5a5;}
+  .pane.new .pane-code{background:#060f0a;color:#bbf7d0;}
+  .fix-note{background:#090f18;border:1px solid var(--blue-mid);border-radius:6px;padding:9px 14px;font-size:12px;color:#7ab8f5;line-height:1.6;}
+  .fix-note strong{color:#60a5fa;font-family:var(--mono);font-size:11px;}
+  .section-label{font-family:var(--mono);font-size:10px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin:28px 0 12px;display:flex;align-items:center;gap:12px;}
+  .section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-tag">Beckhoff TwinCAT 3.1 · Structured Text · Order Management &amp; FIFO</div>
+  <h1>Order Management &amp; FIFO — Code Review</h1>
+  <p class="header-sub">9 issues found across FIFO dequeue ordering, log-before-confirm, operator precedence, WIP stall, CappedComp retry, TotalTODOCount source &amp; lane assignment</p>
+  <div class="stats">
+    <div class="stat red"><div class="dot"></div> 3 HIGH</div>
+    <div class="stat yellow"><div class="dot"></div> 4 MEDIUM</div>
+    <div class="stat blue"><div class="dot"></div> 2 LOW</div>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"></main>
+<script>
+const issues = [
+  {
+    id:1, sev:'high',
+    title:'FIFO Dequeue — Log and Data Copy Happen Before A_GetHead Success Is Confirmed',
+    desc:'A_GetHead is called, but the data copy (aActiveOrder.nSys_Kepware_Data.FillBtl := stNextOrderDetails...) and the system log write both happen unconditionally BEFORE checking IF bOk2_GetHead. If A_GetHead fails (empty FIFO, buffer mismatch, or any internal error), the active order is overwritten with stale/garbage data from a previous stNextOrderDetails value, and a misleading "removed from FIFO" log is written. A_RemoveHead is then skipped, leaving the FIFO head intact — but aActiveOrder now holds wrong data.',
+    old:
+`fbTODOOrderDetailsFifo.A_GetHead(
+    pRead  := ADR(stNextOrderDetails),
+    cbRead := SIZEOF(stNextOrderDetails),
+    bOk    => bOk2_GetHead
+);
+
+// These run BEFORE checking bOk2_GetHead:
+aActiveOrder.nSys_Kepware_Data.FillBtl := stNextOrderDetails.nSys_FillBtlData;
+LogString_SystemLog := CONCAT(...'Message REMOVED from FIFO'...);
+fbLogRingBuffer_SystemLog.A_AddTail(...);
+
+IF bOk2_GetHead THEN
+    fbTODOOrderDetailsFifo.A_RemoveHead(...);
+    aActiveOrder.Active := TRUE;
+END_IF`,
+    fix:
+`fbTODOOrderDetailsFifo.A_GetHead(
+    pRead  := ADR(stNextOrderDetails),
+    cbRead := SIZEOF(stNextOrderDetails),
+    bOk    => bOk2_GetHead
+);
+
+// ALL data use gated on success:
+IF bOk2_GetHead THEN
+    fbTODOOrderDetailsFifo.A_RemoveHead(
+        pRead  := ADR(stRemoveOrderDetails),
+        cbRead := SIZEOF(stRemoveOrderDetails),
+        bOk    => bOk2_Remove);
+    aActiveOrder.nSys_Kepware_Data.FillBtl := stNextOrderDetails.nSys_FillBtlData;
+    aActiveOrder.Active := TRUE;
+    LogString_SystemLog := CONCAT(CONCAT(CONCAT(CONCAT(
+        sTime,' Message REMOVED from FIFO Barcode: '),
+        aActiveOrder.nSys_Kepware_Data.FillBtl.Barcode),
+        ' nCount: '),TO_STRING(fbTODOOrderDetailsFifo.nCount));
+    fbLogRingBuffer_SystemLog.A_AddTail(putValue:=LogString_SystemLog,bOK=>bRingOK_SystemLog);
+ELSE
+    LogString_ErrorLog := CONCAT(sTime,' ERROR: A_GetHead failed on FIFO dequeue');
+    fbLogRingBuffer_ErrorLog.A_AddTail(putValue:=LogString_ErrorLog,bOK=>bRingOK_ErrorLog);
+END_IF`,
+    note:'Move ALL data assignment and logging inside the IF bOk2_GetHead block. Add an ELSE that logs the failure. This is the same issue identified in the earlier FIFO POU review.'
+  },
+  {
+    id:2, sev:'high',
+    title:'FIFO Dequeue Condition Has Operator Precedence Bug — Auto Mode Check Can Be Bypassed',
+    desc:'The outer IF condition mixes AND and OR without parentheses around the OR clause. Due to AND binding more tightly than OR in IEC 61131-3, the condition evaluates as: (bOptifillMachineInAutoMode AND bCycleStart AND NOT bOptiFillMachineInManualMode) OR (bCycleStart AND ...). The second OR arm only requires bCycleStart — no auto mode, no manual mode check. This means orders can be dequeued and made active while in manual mode, as long as bCycleStart is TRUE.',
+    old:
+`IF (bOptifillMachineInAutoMode AND bCycleStart AND NOT bOptiFillMachineInManualMode)
+    OR bCycleStart     // ← no parens — auto mode not required in this arm!
+    AND ((NOT(bBottleTransferGripperClosed OR bTransferServoAtLabeler))
+    OR (bTransferServoAtLabeler AND bBottleTransferGripperopen)) THEN`,
+    fix:
+`// Add explicit parentheses to enforce intended grouping:
+IF (bOptifillMachineInAutoMode AND bCycleStart
+    AND NOT bOptiFillMachineInManualMode)
+   AND
+   ((NOT (bBottleTransferGripperClosed OR bTransferServoAtLabeler))
+    OR (bTransferServoAtLabeler AND bBottleTransferGripperopen)) THEN`,
+    note:'Wrap the transfer servo/gripper condition in its own parentheses and connect it with AND to the mode/cycle guard. The OR was likely intended to offer two gripper-state paths, not two entire dequeue conditions.'
+  },
+  {
+    id:3, sev:'high',
+    title:'WIP[1] to FilledOrders — If No WIPOrder ToteID Matches, WIP[1] Is Never Cleared',
+    desc:'The FOR loop that moves aWIP[1] to aFilledOrders searches for a matching ToteID across the 6 WIPOrders. If no match is found (ToteID mismatch, order already cleared, out-of-sync), the loop completes without setting aWIP[1].Active := FALSE. On the next scan, the same active WIP[1] re-enters the FOR loop and keeps searching — permanently blocking the transfer pipeline. This is the same stall pattern identified in the earlier POU reviews.',
+    old:
+`IF aWIP[1].Active AND bTransferServoAtCapper
+    AND (iBottleStatusAtCabinet = 1) THEN
+  FOR iLane := 1 TO 6 DO
+    IF aWIPOrders[iLane].nSys_OrderInfo.ToteID =
+       aWIP[1].nSys_Kepware_Data.FillBtl.ToteID THEN
+      // ... process and set aWIP[1].Active := FALSE ...
+      EXIT;
+    END_IF
+  END_FOR
+  // No ELSE after loop — WIP[1] never cleared if no match!
+END_IF`,
+    fix:
+`IF aWIP[1].Active AND bTransferServoAtCapper
+    AND (iBottleStatusAtCabinet = 1) THEN
+  bWIPMatchFound := FALSE;
+  FOR iLane := 1 TO 6 DO
+    IF aWIPOrders[iLane].nSys_OrderInfo.ToteID =
+       aWIP[1].nSys_Kepware_Data.FillBtl.ToteID THEN
+      bWIPMatchFound := TRUE;
+      aWIPOrders[iLane].nSys_OrderInfo.BottlesProcessed :=
+          aWIPOrders[iLane].nSys_OrderInfo.BottlesProcessed + 1;
+      aFilledOrders[iFilledCount].nSys_Kepware_Data.FillBtl :=
+          aWIP[1].nSys_Kepware_Data.FillBtl;
+      aFilledOrders[iFilledCount].Active := TRUE;
+      iFilledCount := iFilledCount + 1;
+      IF iFilledCount > MaxFilled THEN iFilledCount := 1; END_IF;
+      aWIP[1].Active := FALSE;
+      EXIT;
+    END_IF
+  END_FOR;
+  IF NOT bWIPMatchFound THEN
+    // ToteID not found — log and clear to unblock pipeline
+    LogString_ErrorLog := CONCAT(CONCAT(sTime,
+      ' ERROR: WIP[1] ToteID not found in WIPOrders: '),
+      TO_STRING(aWIP[1].nSys_Kepware_Data.FillBtl.ToteID));
+    fbLogRingBuffer_ErrorLog.A_AddTail(
+      putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+    aWIP[1].Active := FALSE;
+  END_IF
+END_IF`,
+    note:'Add a bWIPMatchFound flag. After the loop, if no match was found, log the orphaned ToteID and clear aWIP[1].Active to prevent the permanent pipeline stall.'
+  },
+  {
+    id:4, sev:'medium',
+    title:'CappedComplete Retry — nFailCappedCompCount Boundary Allows Extra Retry at Count = 3',
+    desc:'The retry branch checks nFailCappedCompCount <= 3, and the give-up branch checks nFailCappedCompCount > 3. At count exactly 3, the retry branch still fires (increments to 4, re-triggers bCappedCompleteData). The give-up branch only fires at count 4 on the NEXT scan evaluation. This means 4 retries are performed instead of the intended 3. This is the same off-by-one pattern seen in the capper (iCapFailed <= 3) and the labeler.',
+    old:
+`ELSIF bSendDataToOfmComplete
+    AND nSys_CappedComp_NewDataArrival = 1
+    AND nFailCappedCompCount <= 3 THEN   // fires at 0,1,2,3 — 4 retries!
+  tWaiDelayForCappedComp(IN:=TRUE, PT:=T#1S);
+  IF tWaiDelayForCappedComp.Q THEN
+    bCappedCompleteData := TRUE;
+    nFailCappedCompCount := nFailCappedCompCount + 1;
+    ...
+  END_IF
+ELSIF nFailCappedCompCount > 3 THEN      // fires at 4 — one too many`,
+    fix:
+`ELSIF bSendDataToOfmComplete
+    AND nSys_CappedComp_NewDataArrival = 1
+    AND nFailCappedCompCount < 3 THEN    // strictly less-than: 0,1,2 — 3 retries
+  tWaiDelayForCappedComp(IN:=TRUE, PT:=T#1S);
+  IF tWaiDelayForCappedComp.Q THEN
+    bCappedCompleteData := TRUE;
+    nFailCappedCompCount := nFailCappedCompCount + 1;
+    bSendDataToOfmComplete := FALSE;
+    tWaiDelayForCappedComp(IN:=FALSE);
+  END_IF
+ELSIF nFailCappedCompCount >= 3 THEN     // give up after exactly 3 retries`,
+    note:'Change <= 3 to < 3 for the retry guard and >= 3 for the give-up guard. This makes the boundary unambiguous and achieves exactly 3 retries consistently.'
+  },
+  {
+    id:5, sev:'medium',
+    title:'TotalTODOCount Assigned Twice From Different FIFO Instances',
+    desc:'TotalTODOCount is assigned at the top of the POU from fbTODOOrdersFifo.nCount, and again at the bottom also from fbTODOOrdersFifo.nCount. But orders are added to fbTODOOrderDetailsFifo (a separate FIFO instance used for detailed data). The top assignment reads the wrong FIFO — fbTODOOrdersFifo — which may be a completely different queue. The bottom assignment is a duplicate. The HMI count shown to the operator may therefore always be wrong.',
+    old:
+`// Top of POU:
+TotalTODOCount := fbTODOOrdersFifo.nCount;    // ← reads Orders FIFO
+
+// ...orders are added to fbTODOOrderDetailsFifo...
+
+// Bottom of POU (HMI section):
+TotalTODOCount := fbTODOOrdersFifo.nCount;    // ← same wrong source, duplicated`,
+    fix:
+`// Remove the top assignment entirely.
+// At the bottom HMI section, read from the correct FIFO:
+TotalTODOCount := fbTODOOrderDetailsFifo.nCount;  // ← the FIFO actually used`,
+    note:'Remove the top-of-POU assignment. In the HMI section, read TotalTODOCount from fbTODOOrderDetailsFifo — the FIFO where orders are actually enqueued in this POU.'
+  },
+  {
+    id:6, sev:'medium',
+    title:'Multi-Lane Logic: iRequiredLanes = 0 Silently Skips Orders With > 25 Bottles',
+    desc:'When NumberOfBottles > 25, iRequiredLanes is set to 0. The dequeue condition then checks iRequiredLanes > 0, which is FALSE — so the order is never dequeued. It sits permanently at the FIFO head, blocking all subsequent orders forever. There is no log, no fault, and no bypass. This is the same "order permanently blocks FIFO head" pattern identified in the earlier FIFO POU review.',
+    old:
+`IF stNextOrder.NumberOfBottles <= 25 THEN
+    iRequiredLanes := 5;
+ELSE
+    iRequiredLanes := 0;   // silently blocks the FIFO head
+END_IF;
+
+IF (iRequiredLanes > 0) AND ...  // never true for > 25 bottles`,
+    fix:
+`IF stNextOrder.NumberOfBottles <= 5 THEN
+    iRequiredLanes := 1;
+ELSIF stNextOrder.NumberOfBottles <= 10 THEN
+    iRequiredLanes := 2;
+ELSIF stNextOrder.NumberOfBottles <= 15 THEN
+    iRequiredLanes := 3;
+ELSIF stNextOrder.NumberOfBottles <= 20 THEN
+    iRequiredLanes := 4;
+ELSIF stNextOrder.NumberOfBottles <= 25 THEN
+    iRequiredLanes := 5;
+ELSE
+    // Invalid order — pop it off the head and log
+    iHead := iHead + 1;
+    IF iHead > iMaxSize THEN iHead := 1; END_IF;
+    iCount := iCount - 1;
+    LogString_ErrorLog := CONCAT(CONCAT(sTime,
+      ' ERROR: Order NumberOfBottles > 25, popped from FIFO. ToteID: '),
+      TO_STRING(stNextOrder.ToteID));
+    fbLogRingBuffer_ErrorLog.A_AddTail(
+      putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+    iRequiredLanes := 0;
+END_IF;`,
+    note:'When NumberOfBottles > 25, explicitly pop the invalid order off the FIFO head and log it. Never leave an unserviceable order blocking the head silently.'
+  },
+  {
+    id:7, sev:'medium',
+    title:'nSys_FillBtl_NewDataArrival := 6 Only Set Inside IF bOk2_Add — FIFO Add Failure Leaves Signal Stuck at 1',
+    desc:'When A_AddTail fails (bOk2_Add = FALSE), nSys_FillBtl_NewDataArrival is never set to 6. The OFM handshake signal stays at 1 permanently. On every subsequent scan, the POU re-enters the IF nSys_FillBtl_NewDataArrival = 1 block and repeatedly attempts to re-add the same order to the FIFO — potentially filling it with duplicates.',
+    old:
+`IF nSys_FillBtl_NewDataArrival = 1 THEN
+    stNewOrderDetails.nSys_FillBtlData := nSys.FillBtl;
+    stNewOrderDetails.Active := FALSE;
+    fbTODOOrderDetailsFifo.A_AddTail(..., bOk => bOk2_Add);
+    IF bOk2_Add THEN
+        LogString_SystemLog := ...;
+        fbLogRingBuffer_SystemLog.A_AddTail(...);
+        nSys_FillBtl_NewDataArrival := 6;   // ← only set on success!
+    END_IF
+    // If bOk2_Add = FALSE: signal stays at 1, retry floods FIFO
+END_IF`,
+    fix:
+`IF nSys_FillBtl_NewDataArrival = 1 THEN
+    stNewOrderDetails.nSys_FillBtlData := nSys.FillBtl;
+    stNewOrderDetails.Active := FALSE;
+    fbTODOOrderDetailsFifo.A_AddTail(..., bOk => bOk2_Add);
+    IF bOk2_Add THEN
+        LogString_SystemLog := CONCAT(CONCAT(CONCAT(CONCAT(
+          sTime,' Message ADDED TO FIFO Barcode: '),
+          stNewOrderDetails.nSys_FillBtlData.Barcode),
+          ' nCount: '),TO_STRING(fbTODOOrderDetailsFifo.nCount));
+        fbLogRingBuffer_SystemLog.A_AddTail(putValue:=LogString_SystemLog,bOK=>bRingOK_SystemLog);
+    ELSE
+        LogString_ErrorLog := CONCAT(sTime,
+          ' ERROR: A_AddTail failed — FIFO full or buffer error');
+        fbLogRingBuffer_ErrorLog.A_AddTail(
+          putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+    END_IF;
+    // Always clear the signal — whether add succeeded or failed:
+    nSys_FillBtl_NewDataArrival := 6;
+END_IF`,
+    note:'Move nSys_FillBtl_NewDataArrival := 6 outside the IF bOk2_Add block so it always clears. Add an ELSE to log the failure. This prevents duplicate-add flooding on FIFO full.'
+  },
+  {
+    id:8, sev:'low',
+    title:'iFilledCount Circular Buffer Wraps to 1, Not 0 — Slot 0 Is Never Written',
+    desc:'When iFilledCount exceeds MaxFilled, it wraps back to 1. This means aFilledOrders[0] (if the array is zero-based) is never used, or if the array is one-based, the wrap is correct but the initial value of iFilledCount must start at 1. If iFilledCount starts at 0 (the default INT initialisation), the first bottle is written to aFilledOrders[0] and then the wrap takes it back to 1 — skipping slot 0 permanently after the first wrap.',
+    old:
+`aFilledOrders[iFilledCount].nSys_Kepware_Data.FillBtl :=
+    aWIP[1].nSys_Kepware_Data.FillBtl;
+aFilledOrders[iFilledCount].Active := TRUE;
+iFilledCount := iFilledCount + 1;
+IF iFilledCount > MaxFilled THEN
+    iFilledCount := 1;   // wraps to 1, not 0
+END_IF;`,
+    fix:
+`// If array is 1-based (indices 1..MaxFilled):
+// Ensure iFilledCount is initialised to 1 in the VAR block:
+// iFilledCount : INT := 1;
+// The wrap logic is then correct as-is.
+
+// If array is 0-based (indices 0..MaxFilled-1):
+// Change the wrap to reset to 0:
+iFilledCount := iFilledCount + 1;
+IF iFilledCount >= MaxFilled THEN   // >= not >
+    iFilledCount := 0;
+END_IF;
+
+// Also verify: all reads of aFilledOrders[iFilledCount - 1]
+// elsewhere in the codebase are consistent with the chosen base.`,
+    note:'Verify the declared bounds of aFilledOrders and confirm iFilledCount is initialised to 1 (not 0) if the array is 1-based. Add a comment documenting the intended index range.'
+  },
+  {
+    id:9, sev:'low',
+    title:'sSorterFaultMessage Has a Typo and Is Assigned Unconditionally Every Scan',
+    desc:'"Tansfer" should be "Transfer". More importantly, this string is built and assigned every PLC scan regardless of whether there is a fault, whether the sorter is moving, or whether any operator is reading it. For a string CONCAT on a short-cycle PLC task this is minor overhead, but the unconditional write also means the message never reflects a fault state — it always says whatever sTargetName is at this moment.',
+    old:
+`// Runs every scan, regardless of state:
+sSorterFaultMessage := CONCAT('Bottle Tansfer is at ', sTargetName);
+//                              ↑ typo: "Tansfer"`,
+    fix:
+`// Fix typo. Only update when relevant:
+IF bTransferBusy OR (iSorterStep > 0) THEN
+    sSorterFaultMessage := CONCAT('Bottle Transfer is at ', sTargetName);
+ELSIF NOT bTransferBusy AND (iSorterStep = 0) THEN
+    sSorterFaultMessage := 'Transfer idle';
+END_IF`,
+    note:'Fix the "Tansfer" typo. Optionally gate the string assignment so it only updates when the transfer is active — avoids building a new string on every scan.'
+  }
+];
+
+const SEV={high:{label:'HIGH',cls:'high'},medium:{label:'MED',cls:'medium'},low:{label:'LOW',cls:'low'}};
+let activeFilter='all',openId=null;
+function count(s){return issues.filter(i=>i.sev===s).length;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderFilters(){
+  const f=document.getElementById('filters');
+  const btns=[
+    {key:'all',label:`All  ${issues.length}`,cls:activeFilter==='all'?'f-all':''},
+    {key:'high',label:`🔴 High  ${count('high')}`,cls:activeFilter==='high'?'f-high':''},
+    {key:'medium',label:`🟡 Medium  ${count('medium')}`,cls:activeFilter==='medium'?'f-medium':''},
+    {key:'low',label:`🔵 Low  ${count('low')}`,cls:activeFilter==='low'?'f-low':''},
+  ];
+  f.innerHTML=btns.map(b=>`<button class="filter-btn ${b.cls}" onclick="setFilter('${b.key}')">${b.label}</button>`).join('');
+}
+function setFilter(f){activeFilter=f;renderFilters();renderMain();}
+function toggleCard(id){openId=openId===id?null:id;renderMain();}
+function copyCode(id,side){
+  const iss=issues.find(i=>i.id===id);
+  navigator.clipboard.writeText(side==='old'?iss.old:iss.fix).then(()=>{
+    const btn=document.getElementById(`cp-${id}-${side}`);
+    if(!btn)return;
+    btn.textContent='✓ copied';btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent='copy';btn.classList.remove('ok');},1600);
+  });
+}
+function renderMain(){
+  const m=document.getElementById('main');
+  const visible=activeFilter==='all'?issues:issues.filter(i=>i.sev===activeFilter);
+  const sections=[
+    {key:'high',label:'Critical — Fix Immediately'},
+    {key:'medium',label:'Important — Fix Soon'},
+    {key:'low',label:'Cleanup — Low Priority'},
+  ];
+  let html='';
+  for(const sec of sections){
+    const items=visible.filter(i=>i.sev===sec.key);
+    if(!items.length)continue;
+    const dot=sec.key==='high'?'🔴':sec.key==='medium'?'🟡':'🔵';
+    html+=`<div class="section-label">${dot} ${sec.label}</div>`;
+    for(const iss of items){
+      const s=SEV[iss.sev];
+      const isOpen=openId===iss.id;
+      html+=`
+      <div class="card sev-${iss.sev} ${isOpen?'open':''}" id="card-${iss.id}">
+        <div class="card-header" onclick="toggleCard(${iss.id})">
+          <span class="badge ${s.cls}">${s.label}</span>
+          <span class="issue-num">#${iss.id}</span>
+          <span class="issue-title">${iss.title}</span>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="card-body">
+          <div class="desc">${iss.desc}</div>
+          <div class="diff">
+            <div class="pane old">
+              <div class="pane-hdr">
+                <span class="pane-label">✗  BEFORE</span>
+                <button class="copy-btn" id="cp-${iss.id}-old" onclick="copyCode(${iss.id},'old')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.old)}</pre>
+            </div>
+            <div class="pane new">
+              <div class="pane-hdr">
+                <span class="pane-label">✓  AFTER</span>
+                <button class="copy-btn" id="cp-${iss.id}-fix" onclick="copyCode(${iss.id},'fix')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.fix)}</pre>
+            </div>
+          </div>
+          <div class="fix-note"><strong>💡 FIX: </strong>${iss.note}</div>
+        </div>
+      </div>`;
+    }
+  }
+  m.innerHTML=html;
+}
+renderFilters();
+renderMain();
+</script>
+</body>
+</html>
