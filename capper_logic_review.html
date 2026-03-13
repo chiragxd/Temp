@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Bottle Capper Logic — Code Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+  :root {
+    --bg:#080b10;--surface:#0d1117;--border:#1e2d3d;
+    --red:#ff4757;--red-dim:#3d0f14;--red-mid:#7a1e26;
+    --yellow:#ffa502;--yellow-dim:#3a2600;--yellow-mid:#6b4500;
+    --blue:#1e90ff;--blue-dim:#071830;--blue-mid:#0e3560;
+    --green:#2ed573;--text:#cdd9e5;--muted:#4d6375;
+    --mono:'IBM Plex Mono',monospace;--sans:'Syne',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+  header{position:relative;padding:36px 40px 28px;border-bottom:1px solid var(--border);background:linear-gradient(160deg,#0d1420 0%,#080b10 60%);overflow:hidden;}
+  header::before{content:'';position:absolute;top:-60px;right:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,71,87,.07) 0%,transparent 70%);pointer-events:none;}
+  .header-tag{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+  h1{font-size:28px;font-weight:800;color:#e8f0f8;letter-spacing:-.5px;margin-bottom:6px;}
+  .header-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .stat{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid;}
+  .stat.red{background:var(--red-dim);border-color:var(--red-mid);color:#ff8a93;}
+  .stat.yellow{background:var(--yellow-dim);border-color:var(--yellow-mid);color:#ffc96b;}
+  .stat.blue{background:var(--blue-dim);border-color:var(--blue-mid);color:#6ab4ff;}
+  .stat .dot{width:7px;height:7px;border-radius:50%;}
+  .stat.red .dot{background:var(--red);}
+  .stat.yellow .dot{background:var(--yellow);}
+  .stat.blue .dot{background:var(--blue);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .filter-btn{padding:5px 16px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+  .filter-btn:hover{border-color:#2e4460;color:var(--text);}
+  .filter-btn.f-all{border-color:#2e4460;color:var(--text);background:#111820;}
+  .filter-btn.f-high{border-color:var(--red-mid);background:var(--red-dim);color:#ff8a93;}
+  .filter-btn.f-medium{border-color:var(--yellow-mid);background:var(--yellow-dim);color:#ffc96b;}
+  .filter-btn.f-low{border-color:var(--blue-mid);background:var(--blue-dim);color:#6ab4ff;}
+  main{max-width:1200px;margin:0 auto;padding:28px 40px 60px;}
+  .card{margin-bottom:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeUp .3s ease both;}
+  .card:hover{border-color:#2e4460;}
+  .card.open.sev-high{border-color:var(--red-mid);box-shadow:0 0 0 1px var(--red-dim);}
+  .card.open.sev-medium{border-color:var(--yellow-mid);box-shadow:0 0 0 1px var(--yellow-dim);}
+  .card.open.sev-low{border-color:var(--blue-mid);box-shadow:0 0 0 1px var(--blue-dim);}
+  .card-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .15s;}
+  .card-header:hover{background:rgba(255,255,255,.02);}
+  .badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:3px 8px;border-radius:4px;min-width:38px;text-align:center;}
+  .badge.high{background:var(--red);color:#000;}
+  .badge.medium{background:var(--yellow);color:#000;}
+  .badge.low{background:var(--blue);color:#000;}
+  .issue-num{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:24px;}
+  .issue-title{flex:1;font-size:14px;font-weight:600;color:#ddeaf8;letter-spacing:-.1px;}
+  .chevron{color:var(--muted);font-size:14px;transition:transform .2s;}
+  .card.open .chevron{transform:rotate(90deg);}
+  .card-body{padding:0 20px 20px;display:none;}
+  .card.open .card-body{display:block;}
+  .desc{border-left:3px solid;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.65;color:#8fa8bf;}
+  .sev-high .desc{border-color:var(--red);background:var(--red-dim);}
+  .sev-medium .desc{border-color:var(--yellow);background:var(--yellow-dim);}
+  .sev-low .desc{border-color:var(--blue);background:var(--blue-dim);}
+  .diff{display:flex;gap:10px;margin-bottom:12px;}
+  @media(max-width:720px){.diff{flex-direction:column;}}
+  .pane{flex:1;min-width:0;border-radius:8px;overflow:hidden;border:1px solid;display:flex;flex-direction:column;}
+  .pane.old{border-color:#3a1218;}
+  .pane.new{border-color:#0f3020;}
+  .pane-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;}
+  .pane.old .pane-hdr{background:#180a0d;border-bottom:2px solid #5a1a22;}
+  .pane.new .pane-hdr{background:#091410;border-bottom:2px solid #145230;}
+  .pane-label{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;}
+  .pane.old .pane-label{color:#f87171;}
+  .pane.new .pane-label{color:#4ade80;}
+  .copy-btn{background:transparent;border:1px solid #2e3d4a;border-radius:4px;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:10px;padding:2px 8px;transition:all .2s;}
+  .copy-btn:hover{border-color:#4d6375;color:var(--text);}
+  .copy-btn.ok{color:var(--green);border-color:var(--green);}
+  .pane-code{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;overflow-x:auto;white-space:pre-wrap;word-break:break-word;flex:1;}
+  .pane.old .pane-code{background:#100609;color:#fca5a5;}
+  .pane.new .pane-code{background:#060f0a;color:#bbf7d0;}
+  .fix-note{background:#090f18;border:1px solid var(--blue-mid);border-radius:6px;padding:9px 14px;font-size:12px;color:#7ab8f5;line-height:1.6;}
+  .fix-note strong{color:#60a5fa;font-family:var(--mono);font-size:11px;}
+  .section-label{font-family:var(--mono);font-size:10px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin:28px 0 12px;display:flex;align-items:center;gap:12px;}
+  .section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-tag">Beckhoff TwinCAT 3.1 · Structured Text · _24_BottleCapper</div>
+  <h1>Bottle Capper Logic — Code Review</h1>
+  <p class="header-sub">8 issues found across cap retry logic, fault handling, state machine flow &amp; race conditions</p>
+  <div class="stats">
+    <div class="stat red"><div class="dot"></div> 3 HIGH</div>
+    <div class="stat yellow"><div class="dot"></div> 3 MEDIUM</div>
+    <div class="stat blue"><div class="dot"></div> 2 LOW</div>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"></main>
+<script>
+const issues = [
+  {
+    id:1, sev:'high',
+    title:'iCapFailed Reset Twice — Fault Clears Before Step 999 Can Handle It',
+    desc:'At the bottom of the POU, iCapFailed is reset to 0 TWICE inside the same IF block — once before setting the fault and once after. Worse, iCapFailed >= 3 also sets bCapperError := TRUE inside the auto mode CASE section. The fault block at the bottom then immediately resets iCapFailed to 0 and raises GVL.Faults[100] in the same scan. On the very next scan iCapFailed = 0 so the ELSIF bCapPresentOnBottle branch can clear the fault even before step 999 is entered.',
+    old:
+`// Inside CASE (auto mode):
+IF iCapFailed >= 3 THEN
+  bCapperError := TRUE;  // set here
+END_IF
+
+// Bottom of POU — same scan:
+IF iCapFailed >= 3 AND (NOT bCapPresentOnBottle) THEN
+  iCapFailed := 0;           // reset #1
+  GVL.Faults[100].Active := TRUE;
+  bStackLightRed := TRUE;
+  iCapFailed := 0;           // reset #2 — duplicate!
+ELSIF bCapPresentOnBottle THEN
+  GVL.Faults[100].Active := FALSE;
+  iCapFailed := 0;           // also resets on cap present
+END_IF`,
+    fix:
+`// Remove bCapperError from the CASE block.
+// Let the fault block own all fault logic:
+
+// Bottom of POU — single clean fault block:
+IF iCapFailed >= 3 AND (NOT bCapPresentOnBottle) THEN
+  bCapperError := TRUE;
+  GVL.Faults[100].Active := TRUE;
+  bStackLightRed := TRUE;
+  bStackFaultAlarm := TRUE;
+  // Do NOT reset iCapFailed here — let step 999 own the reset
+ELSIF bCapPresentOnBottle AND NOT bCapperError THEN
+  GVL.Faults[100].Active := FALSE;
+  bStackLightRed := FALSE;
+  bStackFaultAlarm := FALSE;
+  iCapFailed := 0;
+END_IF
+
+// In step 999 (error recovery):
+999:
+  IF bFaultResetRequest THEN
+    bCapperError := FALSE;
+    iCapFailed := 0;          // reset only after operator ack
+    GVL.Faults[100].Active := FALSE;
+    iCapperStep := 0;
+  END_IF;`,
+    note:'Remove the duplicate iCapFailed reset. Only reset it in step 999 after operator acknowledgement. Let the fault block own fault activation, not the CASE.'
+  },
+  {
+    id:2, sev:'high',
+    title:'Step 80 Cap Retry Has No Timeout — Machine Can Loop Forever',
+    desc:'When cap check fails (bCapPresentOnBottle = FALSE), step 80 retries up to iCapFailed <= 3 times by jumping back to step 35. But there is no timeout or stuck-detection on this retry loop. If the cap escapement is jammed or empty, the machine will loop between steps 35 and 80 indefinitely without raising a fault or stopping.',
+    old:
+`80: // Cap Check
+  tCapCheckDelay(IN:=TRUE, PT:=T#250MS);
+  IF tCapCheckDelay.Q AND zDebugAuto[27] THEN
+    IF bCapPresentOnBottle AND (NOT GVL.Faults[100].Active) THEN
+      iCapFailed := 0;
+      iCapperStep := 0;        // success
+    ELSIF (iCapFailed <= 3) THEN
+      iCapFailed := iCapFailed + 1;
+      iCapperStep := 35;       // retry — no timeout!
+    END_IF;
+    // No ELSE — if iCapFailed > 3 nothing happens!
+  END_IF;`,
+    fix:
+`80: // Cap Check
+  tCapCheckDelay(IN:=TRUE, PT:=T#250MS);
+  IF tCapCheckDelay.Q AND zDebugAuto[27] THEN
+    IF bCapPresentOnBottle AND (NOT GVL.Faults[100].Active) THEN
+      iCapFailed := 0;
+      IF bSystemLogVerboseMode THEN
+        LogString_SystemLog := CONCAT(CONCAT(CONCAT(sTime,','),
+          aFilledOrders[iFilledCount-1].nSys_Kepware_Data.FillBtl.Barcode),
+          ', Capper Process Complete');
+        fbLogRingBuffer_SystemLog.A_AddTail(putValue:=LogString_SystemLog,bOK=>bRingOK_SystemLog);
+      END_IF
+      bHandOffCompleteForLift := TRUE;
+      iCapperStep := 0;
+    ELSIF iCapFailed < 3 THEN   // strictly less than
+      iCapFailed := iCapFailed + 1;
+      iCapperStep := 35;        // retry
+    ELSE
+      // Max retries reached — go to error step
+      iCapFailed := iCapFailed + 1; // triggers fault block
+      iCapperStep := 999;
+    END_IF;
+  END_IF;`,
+    note:'Add an ELSE branch that routes to step 999 when retries are exhausted. This ensures the fault is raised and an operator must intervene.'
+  },
+  {
+    id:3, sev:'high',
+    title:'Step 30 Bottle Status ELSE Self-Loops — Unknown Status Hangs Machine',
+    desc:'If iBottleStatusAtCapper is any value other than 1, 2, 3, or 999, the ELSE branch writes iCapperStep := 30, which it already is. The machine is silently stuck with no fault, no log, and no recovery. Status 0 (uninitialized) would trigger this.',
+    old:
+`30: // Bottle Status
+  CASE iBottleStatusAtCapper OF
+    1: iCapperStep := 35;
+    2: iCapperStep := 200;
+    3: iCapperStep := 35;
+    999: iCapperStep := 35;
+    ELSE
+      iCapperStep := 30;  // silent hang
+  END_CASE;`,
+    fix:
+`30: // Bottle Status
+  CASE iBottleStatusAtCapper OF
+    1: iCapperStep := 35;           // Pass
+    2: iCapperStep := 200;          // Reject Empty
+    3: iCapperStep := 35;           // Reject Full
+    999: iCapperStep := 35;
+    ELSE
+      // Unknown status — add a timeout guard
+      tBottleStatusTimeout(IN:=TRUE, PT:=T#3S);
+      IF tBottleStatusTimeout.Q THEN
+        tBottleStatusTimeout(IN:=FALSE);
+        LogString_ErrorLog := CONCAT(CONCAT(sTime,
+          ' ERROR: Unknown iBottleStatusAtCapper = '),
+          TO_STRING(iBottleStatusAtCapper));
+        fbLogRingBuffer_ErrorLog.A_AddTail(
+          putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+        iCapperStep := 999; // go to error recovery
+      END_IF
+  END_CASE;`,
+    note:'Replace the silent self-loop ELSE with a short timeout that routes to step 999 and logs the unknown status value.'
+  },
+  {
+    id:4, sev:'medium',
+    title:'Step 10 Sets bSorterReadyToLoad Unconditionally — Race Condition Risk',
+    desc:'bSorterReadyToLoad is set TRUE every scan while iCapperStep = 10 and the conditions are met. This signal tells the sorter it can start loading. If the capper is slow to advance to step 20 for any reason, the sorter may start a load cycle while the capper is still in handoff — creating a race condition between the two subsystems.',
+    old:
+`10: // Close Lift Gripper
+  bOpenBottleLiftGripper := FALSE;
+  bCloseBottleLiftGripper := TRUE;
+  IF bBottleLiftDown AND bCloseBottleLiftGripper THEN
+    bSorterReadyToLoad := TRUE;  // set every scan in this branch
+    iCapperStep := 20;
+  END_IF;`,
+    fix:
+`10: // Close Lift Gripper
+  bOpenBottleLiftGripper := FALSE;
+  bCloseBottleLiftGripper := TRUE;
+  IF bBottleLiftDown AND bCloseBottleLiftGripper THEN
+    iCapperStep := 20;
+  END_IF;
+
+20: // Open Transfer Gripper
+  bTransferComplete := FALSE;
+  bHandOffComplete := TRUE;
+  // Set sorter ready only once transfer gripper is confirmed open
+  // and transfer servo has left the capper position:
+  IF bBottleTransferGripperOpen AND
+     (NOT bTransferServoAtCapper) AND zDebugAuto[21] THEN
+    bSorterReadyToLoad := TRUE;  // moved here — safer timing
+    bHandOffComplete := FALSE;
+    iCapperStep := 30;
+  END_IF;`,
+    note:'Move bSorterReadyToLoad := TRUE to step 20 after confirming the transfer gripper is open and the servo has left, so the sorter only loads when the capper handoff is truly complete.'
+  },
+  {
+    id:5, sev:'medium',
+    title:'Cap Hopper Uses Same tCapHopperTimer Instance for All Steps — Timer Collision',
+    desc:'tCapHopperTimer is reused across steps 10, 20, and 30 with different PT values. If the step advances before the timer fully resets (IN:=FALSE must be called for at least one scan), the Q output from the previous step can carry over and immediately fire the next step\'s timer logic.',
+    old:
+`10:
+  tCapHopperTimer(IN:=TRUE, PT:=T#1S);
+  IF tCapHopperTimer.Q THEN
+    tCapHopperTimer(IN:=FALSE);  // reset inline — risky
+    iCapHopperStep := 20;
+  END_IF
+
+20:
+  bStartCapHopperMotor := TRUE;
+  tCapHopperTimer(IN:=TRUE, PT:=T#20S); // same timer, new PT
+  IF tCapHopperTimer.Q THEN
+    tCapHopperTimer(IN:=FALSE);
+    iCapHopperStep := 30;
+  END_IF`,
+    fix:
+`// Declare three separate timers in VAR block:
+// tCapHopperDelay1 : TON;  // step 10 — start delay
+// tCapHopperDelay2 : TON;  // step 20 — run duration
+// tCapHopperDelay3 : TON;  // step 30 — rest period
+
+10:
+  tCapHopperDelay1(IN:=TRUE, PT:=T#1S);
+  IF tCapHopperDelay1.Q THEN
+    tCapHopperDelay1(IN:=FALSE);
+    iCapHopperStep := 20;
+  END_IF
+  IF bCapTrackAtHighLevel THEN
+    tCapHopperDelay1(IN:=FALSE);
+    iCapHopperStep := 0;
+  END_IF
+
+20:
+  bStartCapHopperMotor := TRUE;
+  tCapHopperDelay2(IN:=TRUE, PT:=T#20S);
+  IF tCapHopperDelay2.Q THEN
+    tCapHopperDelay2(IN:=FALSE);
+    bStartCapHopperMotor := FALSE;
+    iCapHopperStep := 30;
+  END_IF
+  IF bCapTrackAtHighLevel THEN
+    tCapHopperDelay2(IN:=FALSE);
+    bStartCapHopperMotor := FALSE;
+    iCapHopperStep := 0;
+  END_IF`,
+    note:'Declare three separate TON instances for the hopper steps. This eliminates timer state bleed-over between steps.'
+  },
+  {
+    id:6, sev:'medium',
+    title:'Step 20 Sets bHandOffComplete TRUE Every Scan — Transfer Logic Race',
+    desc:'bHandOffComplete := TRUE is written every PLC scan while in step 20. The transfer servo POU likely reads this signal to release the bottle. Setting it every scan rather than as a one-shot risks it being read before bTransferComplete is properly cleared on the same scan.',
+    old:
+`20: // Open Transfer Gripper
+  bTransferComplete := FALSE;
+  bHandOffComplete := TRUE;   // set every scan
+  IF bBottleTransferGripperOpen AND
+     (NOT bTransferServoAtCapper) AND zDebugAuto[21] THEN
+    bHandOffComplete := FALSE;
+    iCapperStep := 30;
+  END_IF;`,
+    fix:
+`20: // Open Transfer Gripper
+  bTransferComplete := FALSE;
+  // Use one-shot to set handoff signal only once:
+  rTrigHandOff(CLK := TRUE);
+  IF rTrigHandOff.Q THEN
+    bHandOffComplete := TRUE;
+  END_IF
+  IF bBottleTransferGripperOpen AND
+     (NOT bTransferServoAtCapper) AND zDebugAuto[21] THEN
+    rTrigHandOff(CLK := FALSE);
+    bHandOffComplete := FALSE;
+    iCapperStep := 30;
+  END_IF;`,
+    note:'Use an R_TRIG to pulse bHandOffComplete only once on entry to step 20 rather than setting it every scan.'
+  },
+  {
+    id:7, sev:'low',
+    title:'Commented-Out iBottleStatusAtCapper Reset in Step 200',
+    desc:'In step 200 (Reject Empty), iBottleStatusAtCapper := 0 is present and active. But in step 80 the same reset is commented out. This inconsistency means bottle status is cleared for empty rejects but NOT for successful caps, leaving a stale status value that could affect the next cycle.',
+    old:
+`80: // Cap Check — success path
+  IF bCapPresentOnBottle AND ... THEN
+    bHandOffCompleteForLift := TRUE;
+    iCapFailed := 0;
+    //iBottleStatusAtCapper := 0;  // commented out!
+    iCapperStep := 0;
+
+200: // Reject Empty
+  bHandOffCompleteForLift := TRUE;
+  bEmptyRejectBottle := TRUE;
+  iBottleStatusAtCapper := 0;    // active here
+  iCapperStep := 0;`,
+    fix:
+`80: // Cap Check — success path
+  IF bCapPresentOnBottle AND ... THEN
+    bHandOffCompleteForLift := TRUE;
+    iCapFailed := 0;
+    iBottleStatusAtCapper := 0;  // uncomment — consistent reset
+    iCapperStep := 0;
+
+200: // Reject Empty
+  bHandOffCompleteForLift := TRUE;
+  bEmptyRejectBottle := TRUE;
+  iBottleStatusAtCapper := 0;
+  iCapperStep := 0;`,
+    note:'Uncomment iBottleStatusAtCapper := 0 in the step 80 success path so status is always cleared at the end of a cycle regardless of outcome.'
+  },
+  {
+    id:8, sev:'low',
+    title:'Fault 21 (Low Cap Track) Overwrites Stack Light State Set by Other Faults',
+    desc:'GVL.Faults[21] and GVL.Faults[100] both independently write bStackLightRed and bStackFaultAlarm. Whichever fault block runs last in the scan wins. If Fault 21 clears while Fault 100 is still active, it will turn off the stack light because the ELSE branch unconditionally sets both to FALSE.',
+    old:
+`// Fault 21 block:
+IF NOT bCapTrackAtLowLevel AND bOptiFillMachineInAutoMode THEN
+  GVL.Faults[21].Active := TRUE;
+  bStackLightRed := TRUE;
+  bStackFaultAlarm := TRUE;
+ELSE
+  GVL.Faults[21].Active := FALSE;
+  bStackLightRed := FALSE;      // overwrites Fault 100!
+  bStackFaultAlarm := FALSE;    // overwrites Fault 100!
+END_IF`,
+    fix:
+`// Fault 21 block — only control its own fault flag:
+IF NOT bCapTrackAtLowLevel AND bOptiFillMachineInAutoMode THEN
+  GVL.Faults[21].Active := TRUE;
+ELSE
+  GVL.Faults[21].Active := FALSE;
+END_IF
+
+// Drive stack light from combined fault state in ONE place:
+// (ideally in a separate shared POU or at end of scan)
+bStackLightRed   := GVL.Faults[21].Active OR
+                    GVL.Faults[100].Active OR
+                    bStackFaultAlarm_Other;
+bStackFaultAlarm := bStackLightRed;`,
+    note:'Never let individual fault blocks own bStackLightRed. Drive it from a combined OR of all active faults in one place so no single fault block can incorrectly clear it.'
+  }
+];
+
+const SEV={high:{label:'HIGH',cls:'high'},medium:{label:'MED',cls:'medium'},low:{label:'LOW',cls:'low'}};
+let activeFilter='all',openId=null;
+function count(s){return issues.filter(i=>i.sev===s).length;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderFilters(){
+  const f=document.getElementById('filters');
+  const btns=[
+    {key:'all',label:`All  ${issues.length}`,cls:activeFilter==='all'?'f-all':''},
+    {key:'high',label:`🔴 High  ${count('high')}`,cls:activeFilter==='high'?'f-high':''},
+    {key:'medium',label:`🟡 Medium  ${count('medium')}`,cls:activeFilter==='medium'?'f-medium':''},
+    {key:'low',label:`🔵 Low  ${count('low')}`,cls:activeFilter==='low'?'f-low':''},
+  ];
+  f.innerHTML=btns.map(b=>`<button class="filter-btn ${b.cls}" onclick="setFilter('${b.key}')">${b.label}</button>`).join('');
+}
+function setFilter(f){activeFilter=f;renderFilters();renderMain();}
+function toggleCard(id){openId=openId===id?null:id;renderMain();}
+function copyCode(id,side){
+  const iss=issues.find(i=>i.id===id);
+  navigator.clipboard.writeText(side==='old'?iss.old:iss.fix).then(()=>{
+    const btn=document.getElementById(`cp-${id}-${side}`);
+    if(!btn)return;
+    btn.textContent='✓ copied';btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent='copy';btn.classList.remove('ok');},1600);
+  });
+}
+function renderMain(){
+  const m=document.getElementById('main');
+  const visible=activeFilter==='all'?issues:issues.filter(i=>i.sev===activeFilter);
+  const sections=[
+    {key:'high',label:'Critical — Fix Immediately'},
+    {key:'medium',label:'Important — Fix Soon'},
+    {key:'low',label:'Cleanup — Low Priority'},
+  ];
+  let html='';
+  for(const sec of sections){
+    const items=visible.filter(i=>i.sev===sec.key);
+    if(!items.length)continue;
+    const dot=sec.key==='high'?'🔴':sec.key==='medium'?'🟡':'🔵';
+    html+=`<div class="section-label">${dot} ${sec.label}</div>`;
+    for(const iss of items){
+      const s=SEV[iss.sev];
+      const isOpen=openId===iss.id;
+      html+=`
+      <div class="card sev-${iss.sev} ${isOpen?'open':''}" id="card-${iss.id}">
+        <div class="card-header" onclick="toggleCard(${iss.id})">
+          <span class="badge ${s.cls}">${s.label}</span>
+          <span class="issue-num">#${iss.id}</span>
+          <span class="issue-title">${iss.title}</span>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="card-body">
+          <div class="desc">${iss.desc}</div>
+          <div class="diff">
+            <div class="pane old">
+              <div class="pane-hdr">
+                <span class="pane-label">✗  BEFORE</span>
+                <button class="copy-btn" id="cp-${iss.id}-old" onclick="copyCode(${iss.id},'old')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.old)}</pre>
+            </div>
+            <div class="pane new">
+              <div class="pane-hdr">
+                <span class="pane-label">✓  AFTER</span>
+                <button class="copy-btn" id="cp-${iss.id}-fix" onclick="copyCode(${iss.id},'fix')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.fix)}</pre>
+            </div>
+          </div>
+          <div class="fix-note"><strong>💡 FIX: </strong>${iss.note}</div>
+        </div>
+      </div>`;
+    }
+  }
+  m.innerHTML=html;
+}
+renderFilters();
+renderMain();
+</script>
+</body>
+</html>

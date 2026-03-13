@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Escapement &amp; Labeler Logic — Code Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+  :root {
+    --bg:#080b10;--surface:#0d1117;--border:#1e2d3d;
+    --red:#ff4757;--red-dim:#3d0f14;--red-mid:#7a1e26;
+    --yellow:#ffa502;--yellow-dim:#3a2600;--yellow-mid:#6b4500;
+    --blue:#1e90ff;--blue-dim:#071830;--blue-mid:#0e3560;
+    --green:#2ed573;--text:#cdd9e5;--muted:#4d6375;
+    --mono:'IBM Plex Mono',monospace;--sans:'Syne',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+  header{position:relative;padding:36px 40px 28px;border-bottom:1px solid var(--border);background:linear-gradient(160deg,#0d1420 0%,#080b10 60%);overflow:hidden;}
+  header::before{content:'';position:absolute;top:-60px;right:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,71,87,.07) 0%,transparent 70%);pointer-events:none;}
+  .header-tag{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+  h1{font-size:28px;font-weight:800;color:#e8f0f8;letter-spacing:-.5px;margin-bottom:6px;}
+  .header-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .stat{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid;}
+  .stat.red{background:var(--red-dim);border-color:var(--red-mid);color:#ff8a93;}
+  .stat.yellow{background:var(--yellow-dim);border-color:var(--yellow-mid);color:#ffc96b;}
+  .stat.blue{background:var(--blue-dim);border-color:var(--blue-mid);color:#6ab4ff;}
+  .stat .dot{width:7px;height:7px;border-radius:50%;}
+  .stat.red .dot{background:var(--red);}
+  .stat.yellow .dot{background:var(--yellow);}
+  .stat.blue .dot{background:var(--blue);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .filter-btn{padding:5px 16px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+  .filter-btn:hover{border-color:#2e4460;color:var(--text);}
+  .filter-btn.f-all{border-color:#2e4460;color:var(--text);background:#111820;}
+  .filter-btn.f-high{border-color:var(--red-mid);background:var(--red-dim);color:#ff8a93;}
+  .filter-btn.f-medium{border-color:var(--yellow-mid);background:var(--yellow-dim);color:#ffc96b;}
+  .filter-btn.f-low{border-color:var(--blue-mid);background:var(--blue-dim);color:#6ab4ff;}
+  main{max-width:1200px;margin:0 auto;padding:28px 40px 60px;}
+  .card{margin-bottom:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeUp .3s ease both;}
+  .card:hover{border-color:#2e4460;}
+  .card.open.sev-high{border-color:var(--red-mid);box-shadow:0 0 0 1px var(--red-dim);}
+  .card.open.sev-medium{border-color:var(--yellow-mid);box-shadow:0 0 0 1px var(--yellow-dim);}
+  .card.open.sev-low{border-color:var(--blue-mid);box-shadow:0 0 0 1px var(--blue-dim);}
+  .card-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .15s;}
+  .card-header:hover{background:rgba(255,255,255,.02);}
+  .badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:3px 8px;border-radius:4px;min-width:38px;text-align:center;}
+  .badge.high{background:var(--red);color:#000;}
+  .badge.medium{background:var(--yellow);color:#000;}
+  .badge.low{background:var(--blue);color:#000;}
+  .issue-num{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:24px;}
+  .issue-title{flex:1;font-size:14px;font-weight:600;color:#ddeaf8;letter-spacing:-.1px;}
+  .chevron{color:var(--muted);font-size:14px;transition:transform .2s;}
+  .card.open .chevron{transform:rotate(90deg);}
+  .card-body{padding:0 20px 20px;display:none;}
+  .card.open .card-body{display:block;}
+  .desc{border-left:3px solid;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.65;color:#8fa8bf;}
+  .sev-high .desc{border-color:var(--red);background:var(--red-dim);}
+  .sev-medium .desc{border-color:var(--yellow);background:var(--yellow-dim);}
+  .sev-low .desc{border-color:var(--blue);background:var(--blue-dim);}
+  .diff{display:flex;gap:10px;margin-bottom:12px;}
+  @media(max-width:720px){.diff{flex-direction:column;}}
+  .pane{flex:1;min-width:0;border-radius:8px;overflow:hidden;border:1px solid;display:flex;flex-direction:column;}
+  .pane.old{border-color:#3a1218;}
+  .pane.new{border-color:#0f3020;}
+  .pane-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;}
+  .pane.old .pane-hdr{background:#180a0d;border-bottom:2px solid #5a1a22;}
+  .pane.new .pane-hdr{background:#091410;border-bottom:2px solid #145230;}
+  .pane-label{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;}
+  .pane.old .pane-label{color:#f87171;}
+  .pane.new .pane-label{color:#4ade80;}
+  .copy-btn{background:transparent;border:1px solid #2e3d4a;border-radius:4px;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:10px;padding:2px 8px;transition:all .2s;}
+  .copy-btn:hover{border-color:#4d6375;color:var(--text);}
+  .copy-btn.ok{color:var(--green);border-color:var(--green);}
+  .pane-code{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;overflow-x:auto;white-space:pre-wrap;word-break:break-word;flex:1;}
+  .pane.old .pane-code{background:#100609;color:#fca5a5;}
+  .pane.new .pane-code{background:#060f0a;color:#bbf7d0;}
+  .fix-note{background:#090f18;border:1px solid var(--blue-mid);border-radius:6px;padding:9px 14px;font-size:12px;color:#7ab8f5;line-height:1.6;}
+  .fix-note strong{color:#60a5fa;font-family:var(--mono);font-size:11px;}
+  .section-label{font-family:var(--mono);font-size:10px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin:28px 0 12px;display:flex;align-items:center;gap:12px;}
+  .section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-tag">Beckhoff TwinCAT 3.1 · Structured Text · Escapement &amp; Labeler</div>
+  <h1>Escapement &amp; Labeler Logic — Code Review</h1>
+  <p class="header-sub">11 issues found across barcode retry logic, state machine safety, variable casing, fault handling &amp; small unscrambler cross-wiring</p>
+  <div class="stats">
+    <div class="stat red"><div class="dot"></div> 4 HIGH</div>
+    <div class="stat yellow"><div class="dot"></div> 4 MEDIUM</div>
+    <div class="stat blue"><div class="dot"></div> 3 LOW</div>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"></main>
+<script>
+const issues = [
+  {
+    id:1, sev:'high',
+    title:'Small Unscrambler Reverse Uses Large Bottle HMI Button — Cross-Wired Logic',
+    desc:'In the manual small unscrambler block, the ELSIF branch triggers reverse on the LARGE bottle reverse HMI button (bReverseLargeBottleUnscramblerMotorHmi) instead of the small one. Symmetrically, the large unscrambler reverse ELSIF uses the SMALL reverse button. Both motors respond to the wrong HMI inputs in reverse.',
+    old:
+`// Small Unscrambler:
+IF bStartSmallBottleUnscramblerMotorHmi
+    AND NOT bReverseSmallBottleUnscramblerMotorHmi THEN
+  bStartSmallBottleUnscramblerMotor := TRUE;
+ELSIF bReverseLargeBottleUnscramblerMotorHmi   // ← WRONG button!
+    AND NOT bStartLargeBottleUnscramblerMotorHMI THEN
+  bReverseSmallBottleUnscramblerMotor := TRUE;
+  bStartSmallBottleUnscramblerMotor := TRUE;
+
+// Large Unscrambler:
+IF bStartLargeBottleUnscramblerMotorHMI
+    AND NOT bReverseLargeBottleUnscramblerMotorHmi THEN
+  bStartLargeBottleUnscramblerMotor := TRUE;
+ELSIF bReverseSmallBottleUnscramblerMotorHmi   // ← WRONG button!
+    AND NOT bStartSmallBottleUnscramblerMotorHmi THEN
+  bReverseLargeBottleUnscramblerMotor := TRUE;
+  bStartLargeBottleUnscramblerMotor := TRUE;`,
+    fix:
+`// Small Unscrambler — uses its OWN reverse button:
+IF bStartSmallBottleUnscramblerMotorHmi
+    AND NOT bReverseSmallBottleUnscramblerMotorHmi THEN
+  bStartSmallBottleUnscramblerMotor := TRUE;
+ELSIF bReverseSmallBottleUnscramblerMotorHmi   // ← correct
+    AND NOT bStartSmallBottleUnscramblerMotorHmi THEN
+  bReverseSmallBottleUnscramblerMotor := TRUE;
+  bStartSmallBottleUnscramblerMotor := TRUE;
+ELSE
+  bStartSmallBottleUnscramblerMotor := FALSE;
+  bReverseSmallBottleUnscramblerMotor := FALSE;
+END_IF;
+
+// Large Unscrambler — uses its OWN reverse button:
+IF bStartLargeBottleUnscramblerMotorHMI
+    AND NOT bReverseLargeBottleUnscramblerMotorHmi THEN
+  bStartLargeBottleUnscramblerMotor := TRUE;
+ELSIF bReverseLargeBottleUnscramblerMotorHmi   // ← correct
+    AND NOT bStartLargeBottleUnscramblerMotorHMI THEN
+  bReverseLargeBottleUnscramblerMotor := TRUE;
+  bStartLargeBottleUnscramblerMotor := TRUE;
+ELSE
+  bStartLargeBottleUnscramblerMotor := FALSE;
+  bReverseLargeBottleUnscramblerMotor := FALSE;
+END_IF;`,
+    note:'Each unscrambler must respond to its own HMI reverse button. The cross-wired inputs mean pressing small reverse runs the large motor in reverse and vice versa.'
+  },
+  {
+    id:2, sev:'high',
+    title:'Barcode Retry Logic in Step 25 — Overlapping Boundaries Allow Infinite Loop',
+    desc:'The no-read retry branch checks iCountBarcodeFail <= 4 (retry) and iCountBarcodeFail >= 3 (fault). When iCountBarcodeFail is 3 or 4, BOTH conditions are true simultaneously. On count 3 the retry fires first (increments to 4), then on count 4 the retry fires again (increments to 5), then the fault fires. You get 5 retries instead of the intended maximum. Worse, the retry resets tWaitForLableApply and goes back to step 25 — if the scanner keeps returning no-read, the boundaries cause both branches to be evaluable in the same scan.',
+    old:
+`ELSIF bBottleBarcodeNoRead AND tWaitForLableApply.Q THEN
+  IF iCountBarcodeFail <= 4 THEN       // retry up to 4
+    iCountBarcodeFail := iCountBarcodeFail + 1;
+    tWaitForLableApply(IN := FALSE);
+    nLabelerState := 25;               // keep retrying
+  ELSIF bBottleBarcodeNoRead
+      AND (iCountBarcodeFail >= 3) THEN // overlaps at 3 and 4!
+    iCountBarcodeFail := 0;
+    nLabelerState := 30;               // give up
+    iBarcodeFailed := iBarcodeFailed + 1;
+  END_IF
+END_IF`,
+    fix:
+`ELSIF bBottleBarcodeNoRead AND tWaitForLableApply.Q THEN
+  IF iCountBarcodeFail < 3 THEN        // retry up to 3 times
+    iCountBarcodeFail := iCountBarcodeFail + 1;
+    tWaitForLableApply(IN := FALSE);
+    nLabelerState := 25;
+  ELSE                                  // give up after 3
+    iBarcodeFailed := iBarcodeFailed + 1;
+    iCountBarcodeFail := 0;
+    bTriggerBarcodeReader := FALSE;
+    bStartLabelerFanMotor := FALSE;
+    bStartPinchRollerMotor := FALSE;
+    nLabelerState := 30;
+  END_IF
+END_IF`,
+    note:'Use a single IF/ELSE with a clean boundary (< 3 retry, ELSE give up). Remove the overlapping >= 3 check that creates ambiguity at counts 3 and 4.'
+  },
+  {
+    id:3, sev:'high',
+    title:'nEscState vs nESCState — Case Mismatch on Critical Variable',
+    desc:'Throughout the escapement logic the variable is referenced as nEscState (lowercase c). But in two ELSIF branches at the bottom of the hopper section it is referenced as nESCState (uppercase SC). TwinCAT ST is case-insensitive so this compiles, but if the variable is ever renamed or the project is migrated to a case-sensitive tool, this will silently break. More importantly it is a clear sign of a copy-paste error and makes the code harder to search and maintain.',
+    old:
+`// Used throughout escapement:
+nEscState := 5;
+IF nEscState = 0 THEN ...
+
+// But in hopper ELSIF branches:
+ELSIF bSmallBottleSelected AND (nESCState <> 0)  // ← different case
+    AND bBottleEscapementDiskInPosition THEN
+ELSIF bLargeBottleSelected AND (nESCState <> 0)  // ← different case
+    AND bBottleEscapementDiskInPosition THEN`,
+    fix:
+`// Standardise on nEscState everywhere:
+ELSIF bSmallBottleSelected AND (nEscState <> 0)
+    AND bBottleEscapementDiskInPosition THEN
+  bStartSmallBottleUnscramblerMotor := TRUE;
+  bReverseSmallBottleUnscramblerMotor := FALSE;
+ELSIF bLargeBottleSelected AND (nEscState <> 0)
+    AND bBottleEscapementDiskInPosition THEN
+  bStartLargeBottleUnscramblerMotor := TRUE;
+  bReverseLargeBottleUnscramblerMotor := FALSE;`,
+    note:'Pick one casing and apply it consistently everywhere. Use Find & Replace in TwinCAT to catch all occurrences.'
+  },
+  {
+    id:4, sev:'high',
+    title:'bLogEvent Never Reset — Manual Mode Event Logged Every Scan',
+    desc:'bLogEvent is set TRUE by the rising edge trigger bEventLogOneShot_1. Inside the manual mode block it fires EventLogger.AddEvent and CsvEventStorage(). But bLogEvent is never set back to FALSE after the log fires. On every subsequent PLC scan while in manual mode, the event is logged again — potentially flooding the event log and CSV storage.',
+    old:
+`bEventLogOneShot_1(CLK := bOptifillMachineInManualMode);
+IF bEventLogOneShot_1.Q THEN
+  bLogEvent := TRUE;   // set on rising edge
+END_IF
+
+IF bOptifillMachineInManualMode ... THEN
+  IF bLogEvent THEN
+    EventLogger.AddEvent(1,0,0,'Machine set to manual mode');
+    CsvEventStorage();
+    // bLogEvent never cleared here!
+  END_IF`,
+    fix:
+`bEventLogOneShot_1(CLK := bOptifillMachineInManualMode);
+IF bEventLogOneShot_1.Q THEN
+  bLogEvent := TRUE;
+END_IF
+
+IF bOptifillMachineInManualMode ... THEN
+  IF bLogEvent THEN
+    EventLogger.AddEvent(1,0,0,'Machine set to manual mode');
+    CsvEventStorage();
+    bLogEvent := FALSE;  // ← reset immediately after logging
+  END_IF`,
+    note:'Reset bLogEvent := FALSE immediately after the EventLogger call so the event is only logged once per manual mode entry.'
+  },
+  {
+    id:5, sev:'medium',
+    title:'Escapement Step 5 Has No Fallback — Hangs if BottleSize Is Neither 0 Nor 1',
+    desc:'Step 5 only handles BottleSize = 0 and BottleSize = 1. If BottleSize has any other value (e.g. uninitialized = 0 when bLargeBottlesOnly/bSmallBottlesOnly override flags are set), neither branch fires and nEscState stays at 5 forever. There is no timeout, no log, and no recovery.',
+    old:
+`5:
+  IF aActiveOrder.nSys_Kepware_Data.FillBtl.BottleSize = 0
+      AND NOT bLargeBottlesOnly AND NOT bSmallBottlesOnly THEN
+    bSmallBottleSelected := FALSE;
+    bLargeBottleSelected := TRUE;
+    nEscState := 10;
+  ELSIF aActiveOrder.nSys_Kepware_Data.FillBtl.BottleSize = 1
+      AND NOT bSmallBottlesOnly AND NOT bLargeBottlesOnly THEN
+    bLargeBottleSelected := FALSE;
+    bSmallBottleSelected := TRUE;
+    nEscState := 10;
+  END_IF
+  // No ELSE — hangs if override flags conflict or BottleSize unknown`,
+    fix:
+`5:
+  IF (aActiveOrder.nSys_Kepware_Data.FillBtl.BottleSize = 0
+      AND NOT bLargeBottlesOnly AND NOT bSmallBottlesOnly)
+     OR bLargeBottlesOnly THEN
+    bSmallBottleSelected := FALSE;
+    bLargeBottleSelected := TRUE;
+    nEscState := 10;
+  ELSIF (aActiveOrder.nSys_Kepware_Data.FillBtl.BottleSize = 1
+      AND NOT bSmallBottlesOnly AND NOT bLargeBottlesOnly)
+     OR bSmallBottlesOnly THEN
+    bLargeBottleSelected := FALSE;
+    bSmallBottleSelected := TRUE;
+    nEscState := 10;
+  ELSE
+    // Unknown bottle size or conflicting overrides
+    LogString_ErrorLog := CONCAT(CONCAT(sTime,
+      ' ERROR: Unknown BottleSize in Esc step 5: '),
+      TO_STRING(aActiveOrder.nSys_Kepware_Data.FillBtl.BottleSize));
+    fbLogRingBuffer_ErrorLog.A_AddTail(
+      putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+    nEscState := 0; // return to idle safely
+  END_IF`,
+    note:'Add an ELSE that logs the unexpected bottle size and returns to step 0. Also consolidate the override flag logic so bLargeBottlesOnly and bSmallBottlesOnly are handled here rather than in step 0.'
+  },
+  {
+    id:6, sev:'medium',
+    title:'LargeJAM_FWD Sets eLargeJamSub := JAM_IDLE Instead of LargeJAM_IDLE',
+    desc:'At the end of the large bottle jam recovery sequence (LargeJAM_FWD), the sub-state is reset to JAM_IDLE instead of LargeJAM_IDLE. JAM_IDLE belongs to the small bottle enum. TwinCAT may resolve this to an integer value that happens to match, but it is semantically incorrect and will cause confusion or break if the enum values are ever reordered.',
+    old:
+`LargeJAM_FWD:
+  tLargeDescrFwdPulseTmr(IN := TRUE, PT := T#5S);
+  bReverseLargeBottleUnscramblerMotor := FALSE;
+  bStartLargeBottleUnscramblerMotor := TRUE;
+  IF tLargeDescrFwdPulseTmr.Q THEN
+    bStartLargeBottleHopperMotor := FALSE;
+    bJamSeqBusy := FALSE;
+    tLargeDescrFwdPulseTmr(IN := FALSE);
+    eLargeJamSub := JAM_IDLE;   // ← wrong enum — small bottle type!
+  END_IF;`,
+    fix:
+`LargeJAM_FWD:
+  tLargeDescrFwdPulseTmr(IN := TRUE, PT := T#5S);
+  bReverseLargeBottleUnscramblerMotor := FALSE;
+  bStartLargeBottleUnscramblerMotor := TRUE;
+  IF tLargeDescrFwdPulseTmr.Q THEN
+    bStartLargeBottleHopperMotor := FALSE;
+    bJamSeqBusy := FALSE;
+    tLargeDescrFwdPulseTmr(IN := FALSE);
+    eLargeJamSub := LargeJAM_IDLE;  // ← correct enum type
+  END_IF;`,
+    note:'Replace JAM_IDLE with LargeJAM_IDLE to use the correct enum type for the large bottle jam sub-state machine.'
+  },
+  {
+    id:7, sev:'medium',
+    title:'Fault 28 (Printer Not In Position) Owns bStackLightRed — Same Race as Capper',
+    desc:'Fault 28 unconditionally sets and clears bStackLightRed and bStackFaultAlarm in its ELSE branch. This is the same pattern identified in the capper review — if Fault 28 clears while another fault (e.g. Fault 7 or 12) is still active, it will switch off the stack light, masking an active alarm from the operator.',
+    old:
+`IF NOT bPrinterInPrintPosition THEN
+  GVL.Faults[28].Active := TRUE;
+  bStackLightRed := TRUE;
+  bStackFaultAlarm := TRUE;
+ELSE
+  GVL.Faults[28].Active := FALSE;
+  bStackLightRed := FALSE;    // ← clears even if Fault 7 active!
+  bStackFaultAlarm := FALSE;  // ← same problem
+END_IF`,
+    fix:
+`// Each fault only controls its own Active flag:
+IF NOT bPrinterInPrintPosition THEN
+  GVL.Faults[28].Active := TRUE;
+ELSE
+  GVL.Faults[28].Active := FALSE;
+END_IF
+
+// Drive stack light from combined OR in ONE shared location:
+bStackLightRed :=
+  GVL.Faults[7].Active OR
+  GVL.Faults[12].Active OR
+  GVL.Faults[28].Active OR
+  GVL.Faults[48].Active;  // add all relevant faults here
+bStackFaultAlarm := bStackLightRed;`,
+    note:'Same fix as the capper: never let individual fault blocks own bStackLightRed. Drive it from a combined OR of all active faults in one place.'
+  },
+  {
+    id:8, sev:'medium',
+    title:'bSmallRunTimeout / bLargeRunTimeout Cleared With Wrong Variable Casing',
+    desc:'The run timeout flags are set as bSmallRunTimeout and bLargeRunTimeout but cleared as bSmallRunTimeOut and bLargeRunTimeOut (capital O). TwinCAT is case-insensitive so it works, but it is the same maintenance risk flagged in earlier POUs and makes text searches unreliable.',
+    old:
+`// Set:
+bSmallRunTimeout := TRUE;   // lowercase 'o'
+bLargeRunTimeout := TRUE;   // lowercase 'o'
+
+// Cleared:
+bSmallRunTimeOut := FALSE;  // uppercase 'O' — inconsistent
+bLargeRunTimeOut := FALSE;  // uppercase 'O' — inconsistent`,
+    fix:
+`// Pick one casing and use it everywhere.
+// Recommended: bSmallRunTimeout (all lowercase 'o'):
+
+// Set:
+bSmallRunTimeout := TRUE;
+bLargeRunTimeout := TRUE;
+
+// Cleared:
+bSmallRunTimeout := FALSE;  // consistent
+bLargeRunTimeout := FALSE;  // consistent`,
+    note:'Standardise on one casing for these variables throughout the POU. Use Find & Replace to catch all occurrences.'
+  },
+  {
+    id:9, sev:'low',
+    title:'Step 50 Has Two Separate IF Blocks for Small and Large — Duplicate Logic',
+    desc:'Step 50 contains two nearly identical IF blocks — one for small bottles and one for large. Both check tPinchRollers.Q AND bBottlePresentAtLabeler AND NOT bCloseBottlePinchRollers and then do the same actions except for clearing bSmallBottleSelected vs bLargeBottleSelected and a different lift plate condition. This duplication means any future change must be made in two places.',
+    old:
+`50:
+  tPinchRollers(IN:=TRUE, PT:=T#1000MS);
+  IF tPinchRollers.Q AND bBottlePresentAtLabeler
+      AND NOT bCloseBottlePinchRollers
+      AND NOT bBottleLabelerLiftPlateDown THEN
+    // small bottle path
+    bCloseBottlePinchRollers := TRUE;
+    bStartPinchRollerMotor := TRUE;
+    bEscapementDone := TRUE;
+    bSmallBottleSelected := FALSE;
+    nEscState := 0;
+  END_IF;
+
+  IF tPinchRollers.Q AND bBottlePresentAtLabeler
+      AND NOT bCloseBottlePinchRollers
+      AND bLowerBottleLiftPlate THEN
+    // large bottle path — almost identical
+    bCloseBottlePinchRollers := TRUE;
+    bStartPinchRollerMotor := TRUE;
+    bEscapementDone := TRUE;
+    bLargeBottleSelected := FALSE;
+    nEscState := 0;
+  END_IF;`,
+    fix:
+`50:
+  tPinchRollers(IN:=TRUE, PT:=T#1000MS);
+  IF tPinchRollers.Q AND bBottlePresentAtLabeler
+      AND NOT bCloseBottlePinchRollers
+      AND (NOT bBottleLabelerLiftPlateDown OR bLowerBottleLiftPlate) THEN
+    // Shared actions:
+    bCloseBottlePinchRollers := TRUE;
+    bStartPinchRollerMotor := TRUE;
+    bOpenBottlePinchRollers := FALSE;
+    bEscapementDone := TRUE;
+    bTurnOnBottleLandingAirJet := FALSE;
+    // Clear whichever was selected:
+    bSmallBottleSelected := FALSE;
+    bLargeBottleSelected := FALSE;
+    // Log and reset:
+    IF bSystemLogVerboseMode THEN
+      LogString_SystemLog := CONCAT(CONCAT(CONCAT(sTime,','),
+        aActiveOrder.nSys_Kepware_Data.FillBtl.Barcode),
+        ', Escapement Process Complete');
+      fbLogRingBuffer_SystemLog.A_AddTail(putValue:=LogString_SystemLog,bOK=>bRingOK_SystemLog);
+      bSystemDoingEscapementProcess := FALSE;
+    END_IF
+    nEscState := 0;
+  END_IF;`,
+    note:'Merge the two IF blocks in step 50 into one. Both bottle sizes do the same thing — the only difference is which Selected flag to clear, which can be done by clearing both.'
+  },
+  {
+    id:10, sev:'low',
+    title:'bSystemWaitingForOrder Only Set Inside bSystemLogVerboseMode Block',
+    desc:'The bSystemWaitingForOrder flag is set TRUE inside the IF bSystemLogVerboseMode block at the bottom of the POU. If verbose logging is disabled, the system waiting flag is never set, meaning tOptiWaitingForOrder never starts and the idle timer is always zero.',
+    old:
+`IF nEscState = 0 AND NOT bBottlePresentAtLabeler
+    AND NOT bPrinterDataReady AND bOptifillMachineInAutoMode THEN
+  IF bSystemLogVerboseMode THEN   // ← flag gated on verbose mode!
+    bSystemWaitingForOrder := TRUE;
+    rTrigIdleTimer(CLK:=TRUE);
+    IF rTrigIdleTimer.Q THEN
+      LogString_SystemLog := CONCAT(sTime, ', No Active barcode, Machine Idle');
+      fbLogRingBuffer_SystemLog.A_AddTail(...);
+    END_IF
+  END_IF
+END_IF`,
+    fix:
+`IF nEscState = 0 AND NOT bBottlePresentAtLabeler
+    AND NOT bPrinterDataReady AND bOptifillMachineInAutoMode THEN
+  // Set the flag regardless of verbose mode:
+  bSystemWaitingForOrder := TRUE;
+  // Only log if verbose:
+  IF bSystemLogVerboseMode THEN
+    rTrigIdleTimer(CLK:=TRUE);
+    IF rTrigIdleTimer.Q THEN
+      LogString_SystemLog := CONCAT(sTime, ', No Active barcode, Machine Idle');
+      fbLogRingBuffer_SystemLog.A_AddTail(putValue:=LogString_SystemLog,bOK=>bRingOK_SystemLog);
+    END_IF
+  END_IF
+END_IF`,
+    note:'Move bSystemWaitingForOrder := TRUE outside the bSystemLogVerboseMode guard so the idle timer always runs regardless of the log setting.'
+  },
+  {
+    id:11, sev:'low',
+    title:'aActiveOrder.Active Set FALSE Twice in Labeler Step 30 No-Read Path',
+    desc:'In the bBottleBarcodeNoRead path of step 30 (inside the CheckBarcodeScanner block), aActiveOrder.Active := FALSE appears twice — once near the top of the block and once at the bottom. The second assignment is redundant and suggests a copy-paste error.',
+    old:
+`IF bBottleBarcodeNoRead THEN
+  IF CheckBarcodeScanner THEN
+    bLabelerDone := TRUE;
+    nPS_PrintStatus_Barcode := aActiveOrder...Barcode;
+    nPS_PrintStatus_Status := 69;
+    aActiveOrder.Active := FALSE;    // ← first assignment
+    nPS_PrintStatus_NewDataArrival := 1;
+    ...log...
+    nLabelerState := 0;
+    aActiveOrder.Active := FALSE;    // ← duplicate!
+    iBottleStatusAtLabeler := 3;
+    iBottleStatusAtCabinet := iBottleStatusAtLabeler;
+    CheckBarcodeScanner := FALSE;
+  END_IF
+END_IF`,
+    fix:
+`IF bBottleBarcodeNoRead THEN
+  IF CheckBarcodeScanner THEN
+    bLabelerDone := TRUE;
+    nPS_PrintStatus_Barcode := aActiveOrder...Barcode;
+    nPS_PrintStatus_Status := 69;
+    nPS_PrintStatus_NewDataArrival := 1;
+    ...log...
+    iBottleStatusAtLabeler := 3;
+    iBottleStatusAtCabinet := iBottleStatusAtLabeler;
+    aActiveOrder.Active := FALSE;    // ← single assignment at end
+    CheckBarcodeScanner := FALSE;
+    nLabelerState := 0;
+  END_IF
+END_IF`,
+    note:'Remove the first duplicate aActiveOrder.Active := FALSE. Keep only one assignment at a logical point after all other fields are updated.'
+  }
+];
+
+const SEV={high:{label:'HIGH',cls:'high'},medium:{label:'MED',cls:'medium'},low:{label:'LOW',cls:'low'}};
+let activeFilter='all',openId=null;
+function count(s){return issues.filter(i=>i.sev===s).length;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderFilters(){
+  const f=document.getElementById('filters');
+  const btns=[
+    {key:'all',label:`All  ${issues.length}`,cls:activeFilter==='all'?'f-all':''},
+    {key:'high',label:`🔴 High  ${count('high')}`,cls:activeFilter==='high'?'f-high':''},
+    {key:'medium',label:`🟡 Medium  ${count('medium')}`,cls:activeFilter==='medium'?'f-medium':''},
+    {key:'low',label:`🔵 Low  ${count('low')}`,cls:activeFilter==='low'?'f-low':''},
+  ];
+  f.innerHTML=btns.map(b=>`<button class="filter-btn ${b.cls}" onclick="setFilter('${b.key}')">${b.label}</button>`).join('');
+}
+function setFilter(f){activeFilter=f;renderFilters();renderMain();}
+function toggleCard(id){openId=openId===id?null:id;renderMain();}
+function copyCode(id,side){
+  const iss=issues.find(i=>i.id===id);
+  navigator.clipboard.writeText(side==='old'?iss.old:iss.fix).then(()=>{
+    const btn=document.getElementById(`cp-${id}-${side}`);
+    if(!btn)return;
+    btn.textContent='✓ copied';btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent='copy';btn.classList.remove('ok');},1600);
+  });
+}
+function renderMain(){
+  const m=document.getElementById('main');
+  const visible=activeFilter==='all'?issues:issues.filter(i=>i.sev===activeFilter);
+  const sections=[
+    {key:'high',label:'Critical — Fix Immediately'},
+    {key:'medium',label:'Important — Fix Soon'},
+    {key:'low',label:'Cleanup — Low Priority'},
+  ];
+  let html='';
+  for(const sec of sections){
+    const items=visible.filter(i=>i.sev===sec.key);
+    if(!items.length)continue;
+    const dot=sec.key==='high'?'🔴':sec.key==='medium'?'🟡':'🔵';
+    html+=`<div class="section-label">${dot} ${sec.label}</div>`;
+    for(const iss of items){
+      const s=SEV[iss.sev];
+      const isOpen=openId===iss.id;
+      html+=`
+      <div class="card sev-${iss.sev} ${isOpen?'open':''}" id="card-${iss.id}">
+        <div class="card-header" onclick="toggleCard(${iss.id})">
+          <span class="badge ${s.cls}">${s.label}</span>
+          <span class="issue-num">#${iss.id}</span>
+          <span class="issue-title">${iss.title}</span>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="card-body">
+          <div class="desc">${iss.desc}</div>
+          <div class="diff">
+            <div class="pane old">
+              <div class="pane-hdr">
+                <span class="pane-label">✗  BEFORE</span>
+                <button class="copy-btn" id="cp-${iss.id}-old" onclick="copyCode(${iss.id},'old')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.old)}</pre>
+            </div>
+            <div class="pane new">
+              <div class="pane-hdr">
+                <span class="pane-label">✓  AFTER</span>
+                <button class="copy-btn" id="cp-${iss.id}-fix" onclick="copyCode(${iss.id},'fix')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.fix)}</pre>
+            </div>
+          </div>
+          <div class="fix-note"><strong>💡 FIX: </strong>${iss.note}</div>
+        </div>
+      </div>`;
+    }
+  }
+  m.innerHTML=html;
+}
+renderFilters();
+renderMain();
+</script>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Bottle Transfer Logic — Code Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+  :root {
+    --bg:#080b10; --surface:#0d1117; --surface2:#111820; --border:#1e2d3d;
+    --red:#ff4757; --red-dim:#3d0f14; --red-mid:#7a1e26;
+    --yellow:#ffa502; --yellow-dim:#3a2600; --yellow-mid:#6b4500;
+    --blue:#1e90ff; --blue-dim:#071830; --blue-mid:#0e3560;
+    --green:#2ed573; --text:#cdd9e5; --muted:#4d6375;
+    --mono:'IBM Plex Mono',monospace; --sans:'Syne',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+  header{position:relative;padding:36px 40px 28px;border-bottom:1px solid var(--border);background:linear-gradient(160deg,#0d1420 0%,#080b10 60%);overflow:hidden;}
+  header::before{content:'';position:absolute;top:-60px;right:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,71,87,.07) 0%,transparent 70%);pointer-events:none;}
+  .header-tag{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+  h1{font-size:28px;font-weight:800;color:#e8f0f8;letter-spacing:-.5px;margin-bottom:6px;}
+  .header-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .stat{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid;}
+  .stat.red{background:var(--red-dim);border-color:var(--red-mid);color:#ff8a93;}
+  .stat.yellow{background:var(--yellow-dim);border-color:var(--yellow-mid);color:#ffc96b;}
+  .stat.blue{background:var(--blue-dim);border-color:var(--blue-mid);color:#6ab4ff;}
+  .stat .dot{width:7px;height:7px;border-radius:50%;}
+  .stat.red .dot{background:var(--red);}
+  .stat.yellow .dot{background:var(--yellow);}
+  .stat.blue .dot{background:var(--blue);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .filter-btn{padding:5px 16px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;letter-spacing:.3px;}
+  .filter-btn:hover{border-color:#2e4460;color:var(--text);}
+  .filter-btn.f-all{border-color:#2e4460;color:var(--text);background:#111820;}
+  .filter-btn.f-high{border-color:var(--red-mid);background:var(--red-dim);color:#ff8a93;}
+  .filter-btn.f-medium{border-color:var(--yellow-mid);background:var(--yellow-dim);color:#ffc96b;}
+  .filter-btn.f-low{border-color:var(--blue-mid);background:var(--blue-dim);color:#6ab4ff;}
+  main{max-width:1200px;margin:0 auto;padding:28px 40px 60px;}
+  .card{margin-bottom:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeUp .3s ease both;}
+  .card:hover{border-color:#2e4460;}
+  .card.open.sev-high{border-color:var(--red-mid);box-shadow:0 0 0 1px var(--red-dim);}
+  .card.open.sev-medium{border-color:var(--yellow-mid);box-shadow:0 0 0 1px var(--yellow-dim);}
+  .card.open.sev-low{border-color:var(--blue-mid);box-shadow:0 0 0 1px var(--blue-dim);}
+  .card-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .15s;}
+  .card-header:hover{background:rgba(255,255,255,.02);}
+  .badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:3px 8px;border-radius:4px;min-width:38px;text-align:center;}
+  .badge.high{background:var(--red);color:#000;}
+  .badge.medium{background:var(--yellow);color:#000;}
+  .badge.low{background:var(--blue);color:#000;}
+  .issue-num{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:24px;}
+  .issue-title{flex:1;font-size:14px;font-weight:600;color:#ddeaf8;letter-spacing:-.1px;}
+  .chevron{color:var(--muted);font-size:14px;transition:transform .2s;}
+  .card.open .chevron{transform:rotate(90deg);}
+  .card-body{padding:0 20px 20px;display:none;}
+  .card.open .card-body{display:block;}
+  .desc{border-left:3px solid;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.65;color:#8fa8bf;}
+  .sev-high .desc{border-color:var(--red);background:var(--red-dim);}
+  .sev-medium .desc{border-color:var(--yellow);background:var(--yellow-dim);}
+  .sev-low .desc{border-color:var(--blue);background:var(--blue-dim);}
+  .diff{display:flex;gap:10px;margin-bottom:12px;}
+  @media(max-width:720px){.diff{flex-direction:column;}}
+  .pane{flex:1;min-width:0;border-radius:8px;overflow:hidden;border:1px solid;display:flex;flex-direction:column;}
+  .pane.old{border-color:#3a1218;}
+  .pane.new{border-color:#0f3020;}
+  .pane-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;}
+  .pane.old .pane-hdr{background:#180a0d;border-bottom:2px solid #5a1a22;}
+  .pane.new .pane-hdr{background:#091410;border-bottom:2px solid #145230;}
+  .pane-label{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;}
+  .pane.old .pane-label{color:#f87171;}
+  .pane.new .pane-label{color:#4ade80;}
+  .copy-btn{background:transparent;border:1px solid #2e3d4a;border-radius:4px;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:10px;padding:2px 8px;transition:all .2s;}
+  .copy-btn:hover{border-color:#4d6375;color:var(--text);}
+  .copy-btn.ok{color:var(--green);border-color:var(--green);}
+  .pane-code{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;overflow-x:auto;white-space:pre-wrap;word-break:break-word;flex:1;}
+  .pane.old .pane-code{background:#100609;color:#fca5a5;}
+  .pane.new .pane-code{background:#060f0a;color:#bbf7d0;}
+  .fix-note{background:#090f18;border:1px solid var(--blue-mid);border-radius:6px;padding:9px 14px;font-size:12px;color:#7ab8f5;line-height:1.6;}
+  .fix-note strong{color:#60a5fa;font-family:var(--mono);font-size:11px;}
+  .section-label{font-family:var(--mono);font-size:10px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin:28px 0 12px;display:flex;align-items:center;gap:12px;}
+  .section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-tag">Beckhoff TwinCAT 3.1 · Structured Text · Bottle Transfer Auto Mode</div>
+  <h1>Bottle Transfer Logic — Code Review</h1>
+  <p class="header-sub">10 issues found across state machine flow, fault handling, cabinet index safety &amp; manual mode</p>
+  <div class="stats">
+    <div class="stat red"><div class="dot"></div> 4 HIGH</div>
+    <div class="stat yellow"><div class="dot"></div> 4 MEDIUM</div>
+    <div class="stat blue"><div class="dot"></div> 2 LOW</div>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"></main>
+<script>
+const issues = [
+  {
+    id:1, sev:'high',
+    title:'Invalid Cabinet Index Falls Back to Step 10 — Bottle Not Released',
+    desc:'In step 25, if CabinetIndex is out of range (not 1–5), the code jumps back to step 10. But the gripper is still CLOSED holding the bottle, and the pinch rollers are already open. The bottle is stuck in the gripper with no reject path and no logging.',
+    old:
+`25:
+  CASE iBottleStatusAtCabinet OF
+    1:
+      IF (CabinetIndex >= 1) AND (CabinetIndex <= 5) THEN
+        ...move to cabinet...
+        iStep := 30;
+      ELSE
+        // Invalid Cabinet Index — goes back to step 10
+        // gripper still closed, no reject, no log!
+        iStep := 10;
+      END_IF;`,
+    fix:
+`25:
+  CASE iBottleStatusAtCabinet OF
+    1:
+      IF (CabinetIndex >= 1) AND (CabinetIndex <= 5) THEN
+        ...move to cabinet...
+        iStep := 30;
+      ELSE
+        // Invalid cabinet — reject the bottle cleanly
+        iBottleStatusAtCabinet := 3;
+        bRejectBottle := TRUE;
+        LogString_ErrorLog := CONCAT(CONCAT(CONCAT(sTime,
+          ' ERROR: Invalid CabinetIndex '),
+          TO_STRING(CabinetIndex)),
+          ' for barcode: ' + aWIP[1].nSys_Kepware_Data.FillBtl.Barcode);
+        fbLogRingBuffer_ErrorLog.A_AddTail(
+          putValue := LogString_ErrorLog, bOK => bRingOK_ErrorLog);
+        iStep := 45; // go through normal reject path
+      END_IF;`,
+    note:'Route invalid cabinet index through the reject path (step 45) instead of looping back to step 10 with the gripper closed.'
+  },
+  {
+    id:2, sev:'high',
+    title:'Step 32 Fill Timeout Does Not Set bFillTimedOut — Fault Fires but Step Never Advances',
+    desc:'tBottleWaitForFillTimeout.Q triggers GVL.Faults[11] at the bottom of the POU, but the bFillTimedOut flag is only set inside step 32 via the ELSIF bFillTimedOut branch. If the timeout fires but bFillTimedOut is never set TRUE, the step machine stays at 32 forever after the fault clears.',
+    old:
+`32:
+  tBottleWaitForFillTimeout(IN:=TRUE, PT:=T#20S);
+  IF bFillComplete AND ... THEN
+    iStep := 35;
+  ELSIF bFillComplete AND (out of tolerance) THEN
+    ...iStep := 45;
+  ELSIF bFillTimedOut THEN  // relies on external flag
+    ...iStep := 45;
+  END_IF;
+
+// At bottom of POU — fault fires but step stays at 32:
+IF tBottleWaitForFillTimeout.Q AND (iStep = 32) THEN
+  GVL.Faults[11].Active := TRUE;
+END_IF`,
+    fix:
+`32:
+  tBottleWaitForFillTimeout(IN:=TRUE, PT:=T#20S);
+  // Set bFillTimedOut directly from the timer here:
+  IF tBottleWaitForFillTimeout.Q AND NOT bFillComplete THEN
+    bFillTimedOut := TRUE;
+  END_IF;
+  IF bFillComplete AND ... THEN
+    iStep := 35;
+  ELSIF bFillComplete AND (out of tolerance) THEN
+    ...iStep := 45;
+  ELSIF bFillTimedOut THEN
+    ...iStep := 45;
+  END_IF;`,
+    note:'Set bFillTimedOut := TRUE directly inside step 32 when the timer fires, so the ELSIF branch can catch it and advance the step.'
+  },
+  {
+    id:3, sev:'high',
+    title:'Step 21 Order Check — bCheckComplete Never Reset Before Loop Runs',
+    desc:'bCheckComplete is set TRUE when a matching order is found. But it is only reset at step 30 entry. If step 21 is re-entered (e.g. after a retry), bCheckComplete could still be TRUE from the previous bottle, causing the step to skip the FOR loop entirely and advance with stale CheckLane data.',
+    old:
+`21:
+  tCheckForOrder(IN:=TRUE, PT:=T#2S);
+  FOR iCheckOrder := 1 TO 6 DO
+    IF (...ToteID match...) THEN
+      CheckLane := iCheckOrder;
+      bCheckComplete := TRUE; // set here
+      EXIT;
+    END_IF
+  END_FOR
+  IF bCheckComplete AND (...) THEN
+    iStep := 25; // advances immediately with stale data!`,
+    fix:
+`// Reset on entry to step 21 — add this at transition from step 20:
+20:
+  ...
+  IF bBottlePinchRollersOpen AND iBottleStatusAtCabinet = 1 THEN
+    bCheckComplete := FALSE; // reset before entering 21
+    CheckLane := 0;
+    iStep := 21;
+  END_IF
+
+21:
+  tCheckForOrder(IN:=TRUE, PT:=T#2S);
+  FOR iCheckOrder := 1 TO 6 DO
+    IF (...ToteID match...) THEN
+      CheckLane := iCheckOrder;
+      bCheckComplete := TRUE;
+      EXIT;
+    END_IF
+  END_FOR
+  IF bCheckComplete AND (...) THEN
+    iStep := 25;`,
+    note:'Reset bCheckComplete and CheckLane when transitioning INTO step 21 (from step 20), not somewhere deeper in the flow.'
+  },
+  {
+    id:4, sev:'high',
+    title:'CanisterFailureCounts Array — No Bounds Check on Cabinet or Can1 Index',
+    desc:'Cabinet comes from aWIP[1].nSys_Kepware_Data.FillBtl.Cabinet and Can1+1 is used as an index. Neither value is range-checked before array access. An out-of-bounds Cabinet or Can1 value causes a runtime exception.',
+    old:
+`IF bHighCount THEN
+  CanisterFailureCounts[
+    aWIP[1].nSys_Kepware_Data.FillBtl.Cabinet,
+    (aWIP[1].nSys_Kepware_Data.FillBtl.Can1 + 1)
+  ].HighCount += 1; // no bounds check!`,
+    fix:
+`// Define constants: MAX_CABINETS := 5; MAX_CANISTERS := 4;
+VAR
+  nCab  : INT;
+  nCan  : INT;
+END_VAR
+
+nCab := aWIP[1].nSys_Kepware_Data.FillBtl.Cabinet;
+nCan := aWIP[1].nSys_Kepware_Data.FillBtl.Can1 + 1;
+
+IF (nCab >= 1 AND nCab <= MAX_CABINETS) AND
+   (nCan >= 1 AND nCan <= MAX_CANISTERS) THEN
+  IF bHighCount THEN
+    CanisterFailureCounts[nCab, nCan].HighCount += 1;
+  ELSIF bLowCount THEN
+    CanisterFailureCounts[nCab, nCan].LowCount += 1;
+  ELSIF bZeroCount THEN
+    CanisterFailureCounts[nCab, nCan].ZeroCount += 1;
+  ELSIF bTimeOut THEN
+    CanisterFailureCounts[nCab, nCan].TimeOut += 1;
+  END_IF;
+ELSE
+  LogString_ErrorLog := CONCAT(CONCAT(sTime,
+    ' ERROR: CanisterFailureCounts index out of bounds. Cabinet: '),
+    TO_STRING(nCab));
+  fbLogRingBuffer_ErrorLog.A_AddTail(putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+END_IF;
+bHighCount:=FALSE; bLowCount:=FALSE; bZeroCount:=FALSE; bTimeOut:=FALSE;`,
+    note:'Cache Cabinet and Can1+1 into local variables, range-check both, then do the array access. Also consolidates the flag resets.'
+  },
+  {
+    id:5, sev:'medium',
+    title:'Step 45 Unconditionally Clears bJamDetected — Loses the Flag Immediately',
+    desc:'bJamDetected is set in step 32 to signal a fill failure. In step 45 it is immediately cleared on the very first scan. Any logic outside this POU that reads bJamDetected as an edge or level signal will likely miss it entirely.',
+    old:
+`45:
+  tWaitingforBottleDrop(IN:=FALSE);
+  tWaitVisionCameraDelay(IN:=FALSE);
+  tBottleWaitForFillTimeout(IN:=FALSE);
+  IF bJamDetected THEN
+    bJamDetected := FALSE; // cleared immediately same step
+  END_IF`,
+    fix:
+`// Use a rising edge trigger to pulse a fault output
+// instead of clearing the flag immediately:
+rTrigJamDetected(CLK := bJamDetected);
+IF rTrigJamDetected.Q THEN
+  GVL.Faults[XX].Active := TRUE; // raise a latching fault
+  LogString_ErrorLog := CONCAT(sTime, ' Jam Detected at Cabinet');
+  fbLogRingBuffer_ErrorLog.A_AddTail(putValue:=LogString_ErrorLog, bOK=>bRingOK_ErrorLog);
+END_IF
+
+// Clear only after fault has been acknowledged:
+IF bFaultAcknowledged THEN
+  bJamDetected := FALSE;
+  GVL.Faults[XX].Active := FALSE;
+END_IF`,
+    note:'bJamDetected should drive a latching fault that requires operator acknowledgement rather than being silently cleared in the same step it is evaluated.'
+  },
+  {
+    id:6, sev:'medium',
+    title:'Step 50 Self-Loops Unconditionally — Wastes Scan Time',
+    desc:'The ELSE branch in step 50 writes iStep := 50, which is what iStep already is. This is harmless but adds unnecessary overhead every scan and obscures the intent. In a busy PLC task it is also a red flag during code review.',
+    old:
+`50:
+  IF bBottleLiftGripperOpenAtCapper AND
+     (NOT bSorterUnloadBusy) AND
+     bBottleLiftDown AND zDebugAuto[6] THEN
+    ...
+    iStep := 60;
+  ELSE
+    iStep := 50; // redundant — already at 50
+  END_IF;`,
+    fix:
+`50:
+  IF bBottleLiftGripperOpenAtCapper AND
+     (NOT bSorterUnloadBusy) AND
+     bBottleLiftDown AND zDebugAuto[6] THEN
+    fbMoveToCapper.Position := GVL_P.rPosCapper;
+    sTargetName := 'Capper';
+    fbMoveToCapper.Execute := TRUE;
+    bDoNotUnload := TRUE;
+    iStep := 60;
+  END_IF;
+  // No ELSE needed — step machine simply waits here`,
+    note:'Remove the redundant iStep := 50 ELSE branch. The CASE statement naturally stays at step 50 until the condition is met.'
+  },
+  {
+    id:7, sev:'medium',
+    title:'FBC Handshake Timeout Log Is Commented Out — Silent Failure',
+    desc:'The bHandshakeTimedOut branch inside the FBC handshake completion block has its entire log body commented out. A timed-out FBC handshake fails silently with no operator visibility or error record.',
+    old:
+`IF fbHandshake_FBC.bHandshakeDone THEN
+  IF fbHandshake_FBC.bHandshakeTimedOut THEN
+    // LogString_ErrorLog := CONCAT(...   ← commented out
+    // fbLogRingBuffer_ErrorLog.A_AddTail ← commented out
+  END_IF;
+  bTriggerFBCHandshake := FALSE;
+END_IF`,
+    fix:
+`IF fbHandshake_FBC.bHandshakeDone THEN
+  IF fbHandshake_FBC.bHandshakeTimedOut THEN
+    LogString_ErrorLog := CONCAT(CONCAT(sTime,
+      ' WARNING: FBC handshake timed out for barcode: '),
+      aWIP[1].nSys_Kepware_Data.FillBtl.Barcode);
+    fbLogRingBuffer_ErrorLog.A_AddTail(
+      putValue := LogString_ErrorLog, bOK => bRingOK_ErrorLog);
+    GVL.Faults[XX].Active := TRUE; // raise visible fault
+  END_IF;
+  bTriggerFBCHandshake := FALSE;
+END_IF`,
+    note:'Uncomment and restore the FBC timeout log. A silent handshake failure is very hard to diagnose in production without a trace in the error log.'
+  },
+  {
+    id:8, sev:'medium',
+    title:'Step 21 Timeout Condition Checks Wrong Variable',
+    desc:'The ELSIF timeout branch checks aWIPOrders[CheckLane].ToteID <> aWIP[1].ToteID, but CheckLane is 0 (default) when no match is found — so it accesses aWIPOrders[0] which is out of bounds or stale. The condition should not depend on CheckLane when no match was found.',
+    old:
+`ELSIF tCheckForOrder.Q AND
+  (aWIPOrders[CheckLane].nSys_OrderInfo.ToteID
+    <> aWIP[1].nSys_Kepware_Data.FillBtl.ToteID)
+  AND (NOT bSorterUnloadBusy) THEN
+  // CheckLane = 0 here if no match found — invalid index!`,
+    fix:
+`ELSIF tCheckForOrder.Q AND NOT bCheckComplete
+  AND (NOT bSorterUnloadBusy) THEN
+  // Timeout and no match found — use bCheckComplete
+  // instead of relying on CheckLane which may be 0
+  nFBC_EBarcode := aWIP[1].nSys_Kepware_Data.FillBtl.Barcode;
+  nFBC_RBarcode := aWIP[1].nSys_Kepware_Data.FillBtl.Barcode;
+  nFillFailCount := nFillFailCount + 1;
+  nFBC_BottleStat := 5;
+  nFBC_NewDataArrival := 1;
+  iBottleStatusAtCabinet := 3;
+  bRejectBottle := TRUE;
+  iStep := 45;`,
+    note:'Replace the CheckLane-dependent condition with NOT bCheckComplete so the timeout branch does not access a potentially zero or stale array index.'
+  },
+  {
+    id:9, sev:'low',
+    title:'Manual Cabinet Move Condition Is Always True',
+    desc:'All 5 manual cabinet move conditions include (bBottleTransferGripperOpen OR NOT bBottleTransferGripperOpen) which is always TRUE for any boolean. This was likely intended as a safety interlock but does nothing.',
+    old:
+`IF aGoToCabinetManualHMI[1] AND
+   (bBottleTransferGripperOpen OR NOT bBottleTransferGripperOpen) THEN
+// ↑ always TRUE — OR with its own complement`,
+    fix:
+`// Option A: Remove the condition entirely if no interlock needed:
+IF aGoToCabinetManualHMI[1] THEN
+  fbMoveAbsMan.Execute := TRUE;
+  fbMoveAbsMan.Position := GVL_P.aPosCabinet[1];
+
+// Option B: If you want a safety interlock, pick ONE state:
+IF aGoToCabinetManualHMI[1] AND bBottleTransferGripperOpen THEN
+  fbMoveAbsMan.Execute := TRUE;
+  fbMoveAbsMan.Position := GVL_P.aPosCabinet[1];`,
+    note:'Decide if a gripper interlock is needed for manual cabinet moves. If yes, use bBottleTransferGripperOpen alone. If not, remove the condition. Applies to all 5 cabinets, camera, and capper manual moves.'
+  },
+  {
+    id:10, sev:'low',
+    title:'Double Semicolon on Two Assignments — Cosmetic but Worth Cleaning',
+    desc:'Two lines have double semicolons (;;) which are harmless in TwinCAT ST but indicate copy-paste errors and reduce code quality.',
+    old:
+`// Step 32 — pass path:
+nFBC_RBarcode := aWIP[1].nSys_Kepware_Data.FillBtl.Barcode;;  // ← ;;
+
+// Step 32 — timeout path:
+nFBC_RBarcode := aWIP[1].nSys_Kepware_Data.FillBtl.Barcode;;  // ← ;;`,
+    fix:
+`// Step 32 — pass path:
+nFBC_RBarcode := aWIP[1].nSys_Kepware_Data.FillBtl.Barcode;  // single ;
+
+// Step 32 — timeout path:
+nFBC_RBarcode := aWIP[1].nSys_Kepware_Data.FillBtl.Barcode;  // single ;`,
+    note:'Remove the duplicate semicolons. TwinCAT ignores them but they are a sign of copy-paste and make the code look unpolished.'
+  }
+];
+
+const SEV={high:{label:'HIGH',cls:'high'},medium:{label:'MED',cls:'medium'},low:{label:'LOW',cls:'low'}};
+let activeFilter='all', openId=null;
+function count(s){return issues.filter(i=>i.sev===s).length;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function renderFilters(){
+  const f=document.getElementById('filters');
+  const btns=[
+    {key:'all',label:`All  ${issues.length}`,cls:activeFilter==='all'?'f-all':''},
+    {key:'high',label:`🔴 High  ${count('high')}`,cls:activeFilter==='high'?'f-high':''},
+    {key:'medium',label:`🟡 Medium  ${count('medium')}`,cls:activeFilter==='medium'?'f-medium':''},
+    {key:'low',label:`🔵 Low  ${count('low')}`,cls:activeFilter==='low'?'f-low':''},
+  ];
+  f.innerHTML=btns.map(b=>`<button class="filter-btn ${b.cls}" onclick="setFilter('${b.key}')">${b.label}</button>`).join('');
+}
+function setFilter(f){activeFilter=f;renderFilters();renderMain();}
+function toggleCard(id){openId=openId===id?null:id;renderMain();}
+function copyCode(id,side){
+  const iss=issues.find(i=>i.id===id);
+  navigator.clipboard.writeText(side==='old'?iss.old:iss.fix).then(()=>{
+    const btn=document.getElementById(`cp-${id}-${side}`);
+    if(!btn)return;
+    btn.textContent='✓ copied';btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent='copy';btn.classList.remove('ok');},1600);
+  });
+}
+
+function renderMain(){
+  const m=document.getElementById('main');
+  const visible=activeFilter==='all'?issues:issues.filter(i=>i.sev===activeFilter);
+  const sections=[
+    {key:'high',label:'Critical — Fix Immediately'},
+    {key:'medium',label:'Important — Fix Soon'},
+    {key:'low',label:'Cleanup — Low Priority'},
+  ];
+  let html='';
+  for(const sec of sections){
+    const items=visible.filter(i=>i.sev===sec.key);
+    if(!items.length)continue;
+    const dot=sec.key==='high'?'🔴':sec.key==='medium'?'🟡':'🔵';
+    html+=`<div class="section-label">${dot} ${sec.label}</div>`;
+    for(const iss of items){
+      const s=SEV[iss.sev];
+      const isOpen=openId===iss.id;
+      html+=`
+      <div class="card sev-${iss.sev} ${isOpen?'open':''}" id="card-${iss.id}">
+        <div class="card-header" onclick="toggleCard(${iss.id})">
+          <span class="badge ${s.cls}">${s.label}</span>
+          <span class="issue-num">#${iss.id}</span>
+          <span class="issue-title">${iss.title}</span>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="card-body">
+          <div class="desc">${iss.desc}</div>
+          <div class="diff">
+            <div class="pane old">
+              <div class="pane-hdr">
+                <span class="pane-label">✗  BEFORE</span>
+                <button class="copy-btn" id="cp-${iss.id}-old" onclick="copyCode(${iss.id},'old')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.old)}</pre>
+            </div>
+            <div class="pane new">
+              <div class="pane-hdr">
+                <span class="pane-label">✓  AFTER</span>
+                <button class="copy-btn" id="cp-${iss.id}-fix" onclick="copyCode(${iss.id},'fix')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.fix)}</pre>
+            </div>
+          </div>
+          <div class="fix-note"><strong>💡 FIX: </strong>${iss.note}</div>
+        </div>
+      </div>`;
+    }
+  }
+  m.innerHTML=html;
+}
+renderFilters();
+renderMain();
+</script>
+</body>
+</html>
