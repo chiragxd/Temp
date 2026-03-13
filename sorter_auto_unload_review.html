@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sorter Logic — Code Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+  :root {
+    --bg:#080b10;--surface:#0d1117;--border:#1e2d3d;
+    --red:#ff4757;--red-dim:#3d0f14;--red-mid:#7a1e26;
+    --yellow:#ffa502;--yellow-dim:#3a2600;--yellow-mid:#6b4500;
+    --blue:#1e90ff;--blue-dim:#071830;--blue-mid:#0e3560;
+    --green:#2ed573;--text:#cdd9e5;--muted:#4d6375;
+    --mono:'IBM Plex Mono',monospace;--sans:'Syne',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+  header{position:relative;padding:36px 40px 28px;border-bottom:1px solid var(--border);background:linear-gradient(160deg,#0d1420 0%,#080b10 60%);overflow:hidden;}
+  header::before{content:'';position:absolute;top:-60px;right:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,71,87,.07) 0%,transparent 70%);pointer-events:none;}
+  .header-tag{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+  h1{font-size:28px;font-weight:800;color:#e8f0f8;letter-spacing:-.5px;margin-bottom:6px;}
+  .header-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .stat{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid;}
+  .stat.red{background:var(--red-dim);border-color:var(--red-mid);color:#ff8a93;}
+  .stat.yellow{background:var(--yellow-dim);border-color:var(--yellow-mid);color:#ffc96b;}
+  .stat.blue{background:var(--blue-dim);border-color:var(--blue-mid);color:#6ab4ff;}
+  .stat .dot{width:7px;height:7px;border-radius:50%;}
+  .stat.red .dot{background:var(--red);}
+  .stat.yellow .dot{background:var(--yellow);}
+  .stat.blue .dot{background:var(--blue);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .filter-btn{padding:5px 16px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+  .filter-btn:hover{border-color:#2e4460;color:var(--text);}
+  .filter-btn.f-all{border-color:#2e4460;color:var(--text);background:#111820;}
+  .filter-btn.f-high{border-color:var(--red-mid);background:var(--red-dim);color:#ff8a93;}
+  .filter-btn.f-medium{border-color:var(--yellow-mid);background:var(--yellow-dim);color:#ffc96b;}
+  .filter-btn.f-low{border-color:var(--blue-mid);background:var(--blue-dim);color:#6ab4ff;}
+  main{max-width:1200px;margin:0 auto;padding:28px 40px 60px;}
+  .card{margin-bottom:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:fadeUp .3s ease both;}
+  .card:hover{border-color:#2e4460;}
+  .card.open.sev-high{border-color:var(--red-mid);box-shadow:0 0 0 1px var(--red-dim);}
+  .card.open.sev-medium{border-color:var(--yellow-mid);box-shadow:0 0 0 1px var(--yellow-dim);}
+  .card.open.sev-low{border-color:var(--blue-mid);box-shadow:0 0 0 1px var(--blue-dim);}
+  .card-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .15s;}
+  .card-header:hover{background:rgba(255,255,255,.02);}
+  .badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1.2px;padding:3px 8px;border-radius:4px;min-width:38px;text-align:center;}
+  .badge.high{background:var(--red);color:#000;}
+  .badge.medium{background:var(--yellow);color:#000;}
+  .badge.low{background:var(--blue);color:#000;}
+  .issue-num{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:24px;}
+  .issue-title{flex:1;font-size:14px;font-weight:600;color:#ddeaf8;letter-spacing:-.1px;}
+  .chevron{color:var(--muted);font-size:14px;transition:transform .2s;}
+  .card.open .chevron{transform:rotate(90deg);}
+  .card-body{padding:0 20px 20px;display:none;}
+  .card.open .card-body{display:block;}
+  .desc{border-left:3px solid;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.65;color:#8fa8bf;}
+  .sev-high .desc{border-color:var(--red);background:var(--red-dim);}
+  .sev-medium .desc{border-color:var(--yellow);background:var(--yellow-dim);}
+  .sev-low .desc{border-color:var(--blue);background:var(--blue-dim);}
+  .diff{display:flex;gap:10px;margin-bottom:12px;}
+  @media(max-width:720px){.diff{flex-direction:column;}}
+  .pane{flex:1;min-width:0;border-radius:8px;overflow:hidden;border:1px solid;display:flex;flex-direction:column;}
+  .pane.old{border-color:#3a1218;}
+  .pane.new{border-color:#0f3020;}
+  .pane-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;}
+  .pane.old .pane-hdr{background:#180a0d;border-bottom:2px solid #5a1a22;}
+  .pane.new .pane-hdr{background:#091410;border-bottom:2px solid #145230;}
+  .pane-label{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;}
+  .pane.old .pane-label{color:#f87171;}
+  .pane.new .pane-label{color:#4ade80;}
+  .copy-btn{background:transparent;border:1px solid #2e3d4a;border-radius:4px;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:10px;padding:2px 8px;transition:all .2s;}
+  .copy-btn:hover{border-color:#4d6375;color:var(--text);}
+  .copy-btn.ok{color:var(--green);border-color:var(--green);}
+  .pane-code{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;overflow-x:auto;white-space:pre-wrap;word-break:break-word;flex:1;}
+  .pane.old .pane-code{background:#100609;color:#fca5a5;}
+  .pane.new .pane-code{background:#060f0a;color:#bbf7d0;}
+  .fix-note{background:#090f18;border:1px solid var(--blue-mid);border-radius:6px;padding:9px 14px;font-size:12px;color:#7ab8f5;line-height:1.6;}
+  .fix-note strong{color:#60a5fa;font-family:var(--mono);font-size:11px;}
+  .section-label{font-family:var(--mono);font-size:10px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin:28px 0 12px;display:flex;align-items:center;gap:12px;}
+  .section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-tag">Beckhoff TwinCAT 3.1 · Structured Text · Sorter Auto / Unload / Homing</div>
+  <h1>Sorter Logic — Code Review</h1>
+  <p class="header-sub">10 issues found across handshake retry logic, variable casing, unload array bounds, step counter race, timer sharing &amp; dead code</p>
+  <div class="stats">
+    <div class="stat red"><div class="dot"></div> 3 HIGH</div>
+    <div class="stat yellow"><div class="dot"></div> 4 MEDIUM</div>
+    <div class="stat blue"><div class="dot"></div> 3 LOW</div>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"></main>
+<script>
+const issues = [
+  {
+    id:1, sev:'high',
+    title:'ToteInfoComplete Handshake Step 20 — Retry Counter Incremented AFTER the Guard Check',
+    desc:'In iToteInfoCompleteHandshake step 20, the retry limit is checked as nTICRetry >= 3, but nTICRetry is only incremented INSIDE that same branch. On the first three timeouts, the condition nTICRetry >= 3 is FALSE so the retry branch never fires — meaning retries never actually happen. The machine silently waits at step 20 until the third branch (nTICRetry > 3) eventually fires, but because nTICRetry never reaches 4 via the retry branch, the fallthrough to step 30 also never fires. The handshake can hang indefinitely.',
+    old:
+`20:
+  tToteInfoCompleteHandshakeTMR(IN:=TRUE, PT:=T#1250MS);
+  IF nSys_ToteInfoComp_NewDataArrival = 6
+      AND tToteInfoCompleteHandshakeTMR.Q THEN
+    iToteHandShakeCounter := iToteHandShakeCounter + 1;
+    iToteInfoCompleteHandshake := 30;           // success
+  ELSIF nSys_ToteInfoComp_NewDataArrival <> 6
+      AND (nTICRetry >= 3)                      // never true first 3 timeouts
+      AND tToteInfoCompleteHandshakeTMR.Q THEN
+    nTICRetry := nTICRetry + 1;                 // incremented inside guard!
+    iToteInfoCompleteHandshake := 10;           // retry
+  ELSIF nTICRetry > 3 THEN                      // also unreachable
+    iToteInfoCompleteHandshake := 30;
+    iToteHandShakeFailedCounter := iToteHandShakeFailedCounter + 1;
+  END_IF`,
+    fix:
+`20:
+  tToteInfoCompleteHandshakeTMR(IN:=TRUE, PT:=T#1250MS);
+  IF nSys_ToteInfoComp_NewDataArrival = 6
+      AND tToteInfoCompleteHandshakeTMR.Q THEN
+    iToteHandShakeCounter := iToteHandShakeCounter + 1;
+    tToteInfoCompleteHandshakeTMR(IN:=FALSE);
+    iToteInfoCompleteHandshake := 30;           // success path
+  ELSIF nSys_ToteInfoComp_NewDataArrival <> 6
+      AND tToteInfoCompleteHandshakeTMR.Q THEN
+    tToteInfoCompleteHandshakeTMR(IN:=FALSE);
+    IF nTICRetry < 3 THEN
+      nTICRetry := nTICRetry + 1;              // increment first
+      iToteInfoCompleteHandshake := 10;        // retry
+    ELSE
+      iToteHandShakeFailedCounter := iToteHandShakeFailedCounter + 1;
+      iToteInfoCompleteHandshake := 30;        // give up cleanly
+    END_IF
+  END_IF`,
+    note:'Increment nTICRetry unconditionally on each timeout, then decide retry-or-give-up based on the new value. Also reset the timer (IN:=FALSE) when leaving this step so it fires cleanly on re-entry.'
+  },
+  {
+    id:2, sev:'high',
+    title:'Unload Step 22 — LaneAssigned Array Access With No Bounds Check on LaneIndex+1',
+    desc:'In unload step 22, both IF branches read aWIPOrders[aWipOrderNumber].LaneAssigned[LaneIndex + 1]. If LaneIndex is already at the maximum array index (e.g. 5 for a 5-element array), LaneIndex + 1 = 6 causes an out-of-bounds access. TwinCAT will not throw a runtime exception by default for fixed arrays — it reads garbage memory. The unload sequence then proceeds with a corrupt lane value.',
+    old:
+`22:
+  IF aWIPOrders[aWipOrderNumber].LaneAssigned[LaneIndex + 1] <> 0 THEN
+    LaneIndex := LaneIndex + 1;          // no bounds check!
+    iUnloadLane := aWIPOrders[aWipOrderNumber].LaneAssigned[LaneIndex];
+    iSorterUnloadStep := 10;
+  ELSIF aWIPOrders[aWipOrderNumber].LaneAssigned[LaneIndex + 1] = 0 THEN
+    iSorterUnloadStep := 23;
+  END_IF`,
+    fix:
+`22:
+  // Guard: only peek at LaneIndex+1 if within bounds (1..5)
+  IF LaneIndex < 5 THEN
+    IF aWIPOrders[aWipOrderNumber].LaneAssigned[LaneIndex + 1] <> 0 THEN
+      LaneIndex := LaneIndex + 1;
+      iUnloadLane := aWIPOrders[aWipOrderNumber].LaneAssigned[LaneIndex];
+      iSorterUnloadStep := 10;
+    ELSE
+      iSorterUnloadStep := 23;   // no more lanes
+    END_IF
+  ELSE
+    // Already at last lane slot — proceed to induction
+    iSorterUnloadStep := 23;
+  END_IF`,
+    note:'Add a bounds check (LaneIndex < 5, or whatever your array upper bound is) before reading LaneAssigned[LaneIndex + 1]. Collapse the two branches into IF/ELSE to make the logic cleaner.'
+  },
+  {
+    id:3, sev:'high',
+    title:'bSorterMoved vs bSortermoved — Case Mismatch Creates Two Separate Variables',
+    desc:'In the "test" block at the top of the POU, fTrigSorterStepCount sets bSortermoved (lowercase m). Then the IF block reads bSorterMoved (uppercase M) to increment nSorterStepsTaken. In TwinCAT ST these are case-insensitive and refer to the same variable — but they compile to the same symbol only because TwinCAT is lenient. If the declaration block uses one casing and this code uses another, search/replace operations or any case-sensitive tooling will miss half the references. Paired with the fact this entire block is labelled "test" and appears to be leftover debug code, it should either be cleaned up or the casing unified.',
+    old:
+`// test block:
+fTrigSorterStepCount(CLK := bBottleSorterLaneInPosition);
+IF fTrigSorterStepCount.Q THEN
+  bSortermoved := TRUE;          // lowercase m
+END_IF
+IF bSorterMoved THEN             // uppercase M — different casing
+  nSorterStepsTaken := nSorterStepsTaken + 1;
+  bSorterMoved := FALSE;
+END_IF
+IF iSorterStep = 0 THEN
+  nSorterStepsTaken := 0;        // also resets in auto step 0
+END_IF`,
+    fix:
+`// Option A: Remove the entire test block if no longer needed
+// (fTrigSorterStepCount, bSorterMoved, nSorterStepsTaken
+//  are already tracked properly in the auto mode CASE)
+
+// Option B: If the step counter IS needed, unify casing and
+// move the reset to one place:
+fTrigSorterStepCount(CLK := bBottleSorterLaneInPosition);
+IF fTrigSorterStepCount.Q THEN
+  bSorterMoved := TRUE;          // consistent casing
+END_IF
+IF bSorterMoved THEN
+  nSorterStepsTaken := nSorterStepsTaken + 1;
+  bSorterMoved := FALSE;
+END_IF
+// Remove the nSorterStepsTaken := 0 here;
+// let auto mode step 0 own the reset exclusively.`,
+    note:'Unify to one casing throughout. If this is truly test/debug code (the comment says "test"), remove the block entirely — nSorterStepsTaken is already reset in auto mode step 0.'
+  },
+  {
+    id:4, sev:'medium',
+    title:'tCSTRPulse Shared Between Manual Jog CASE and Servo Homing Routine',
+    desc:'tCSTRPulse is used in three places: the manual iStep CASE (steps 20 and beyond), the auto iSorterStep CASE (step 15/20), and the servo homing routine (steps 40/50). All three use the same TON instance with different PT values (no PT in manual step 20, T#10MS in homing step 50). If the homing routine is mid-pulse and the auto CASE also calls tCSTRPulse(IN:=TRUE), the timer resets. This was flagged as a prior issue with the manual homing timer — this is the same pattern, now on a more critical signal.',
+    old:
+`// Manual CASE iStep:
+20:
+  tCSTRPulse(IN := TRUE);   // no PT — inherits last PT!
+  IF tCSTRPulse.Q THEN ...
+
+// Servo Homing CASE iServoHomingRoutine:
+50:
+  tCSTRPulse(IN := TRUE, PT := T#10MS);  // different PT
+  IF tCSTRPulse.Q THEN ...`,
+    fix:
+`// Declare separate timers in VAR block:
+// tManualCSTRPulse   : TON;  // for manual iStep CASE
+// tHomingCSTRPulse   : TON;  // for servo homing routine
+// tAutoSorterCSTR    : TON;  // already tCSTRDebounce in auto — OK
+
+// Manual CASE iStep:
+20:
+  tManualCSTRPulse(IN := TRUE, PT := T#10MS);
+  IF tManualCSTRPulse.Q THEN
+    bSorterCSTRPWRT := FALSE;
+    tManualCSTRPulse(IN := FALSE);
+  END_IF
+
+// Servo Homing CASE:
+50:
+  tHomingCSTRPulse(IN := TRUE, PT := T#10MS);
+  IF tHomingCSTRPulse.Q THEN
+    bSorterCSTRPWRT := FALSE;
+    tHomingCSTRPulse(IN := FALSE);
+  END_IF`,
+    note:'Declare one TON per CSTR usage context. Shared timers cause subtle race conditions when two state machines can both be active or when PT values differ between uses.'
+  },
+  {
+    id:5, sev:'medium',
+    title:'Unload Order Selection Uses Flat IF/ELSIF Chain — Priority Starvation for Orders 2–6',
+    desc:'The unload order selection checks WIP slots 1 through 6 in a fixed priority chain. If order 1 is perpetually active (e.g. a large order taking a long time), orders 2–6 can never be selected for unload even if they completed first. This causes priority starvation. The machine may hold completed bottles in lanes for extended periods waiting for slot 1 to clear.',
+    old:
+`IF aWIPOrders[1].Active AND (...BottlesProcessed >= ...NumberOfBottles)
+    AND NOT bSorterUnloadReady THEN
+  aWipOrderNumber := 1; ...
+ELSIF aWIPOrders[2].Active AND (...) AND NOT bSorterUnloadReady THEN
+  aWipOrderNumber := 2; ...
+ELSIF aWIPOrders[3].Active AND (...) AND NOT bSorterUnloadReady THEN
+  aWipOrderNumber := 3; ...
+// ... and so on through 6
+// Order 1 always wins if active — even if completed later than others`,
+    fix:
+`// Use a FOR loop — select the first COMPLETED order found:
+IF NOT bSorterUnloadReady THEN
+  FOR iScanOrder := 1 TO 6 DO
+    IF aWIPOrders[iScanOrder].Active AND
+       (aWIPOrders[iScanOrder].nSys_OrderInfo.BottlesProcessed >=
+        aWIPOrders[iScanOrder].nSys_OrderInfo.NumberOfBottles) THEN
+      bSorterUnloadReady := TRUE;
+      aWipOrderNumber    := iScanOrder;
+      LaneIndex          := 1;
+      iUnloadLane        := aWIPOrders[iScanOrder].LaneAssigned[1];
+      EXIT;
+    END_IF;
+  END_FOR;
+END_IF`,
+    note:'Replace the IF/ELSIF chain with a FOR loop. This preserves the "first completed" selection behaviour while eliminating the hardcoded repetition and the starvation risk.'
+  },
+  {
+    id:6, sev:'medium',
+    title:'Unload Step 25 Writes nSys_ToteInfoComp_NewDataArrival := 1 While iToteInfoCompleteHandshake Is Also Writing It',
+    desc:'Step 25 of iSorterUnloadStep directly writes nSys_ToteInfoComp_ToteNumber, nSys_ToteInfoComp_ToteID, and nSys_ToteInfoComp_NewDataArrival := 1. At the same time, the iToteInfoCompleteHandshake state machine step 10 writes the same three variables. Both machines are active concurrently. Whichever runs last in the scan wins, potentially overwriting a mid-handshake state with stale values.',
+    old:
+`// Unload step 25 (runs every scan while in this step):
+nSys_ToteInfoComp_ToteNumber := DINT_TO_INT(Current_Tote_Number);
+nSys_ToteInfoComp_ToteID := aWIPOrders[aWipOrderNumber].nSys_OrderInfo.ToteID;
+nSys_ToteInfoComp_NewDataArrival := 1;   // ← also written by handshake SM!
+
+// iToteInfoCompleteHandshake step 10 (also runs every scan):
+nSys_ToteInfoComp_ToteNumber := DINT_TO_INT(Current_Tote_Number);
+nSys_ToteInfoComp_ToteID := aWIPOrders[aWipOrderNumber].nSys_OrderInfo.ToteID;
+nSys_ToteInfoComp_NewDataArrival := 1;   // ← conflict`,
+    fix:
+`// Unload step 25: only SET the trigger flag and advance.
+// Let iToteInfoCompleteHandshake own all OFM writes:
+25:
+  rTrigLogThis(CLK := FALSE);
+  tWritetoOFMDelay(IN := FALSE);
+  tWaitDelayForWriting(IN := FALSE);
+  // Clear lane data and WIP order here (unchanged)...
+  bToteInfoCompleteHandshake := TRUE;  // signal the handshake SM
+  IF tUnloadSorterDelayTmr.Q THEN
+    iSorterUnloadStep := 30;
+    tUnloadSorterDelayTmr(IN := FALSE);
+  END_IF;
+  // Remove the 3 direct nSys_ToteInfoComp writes from this step.`,
+    note:'Only one owner should write the OFM handshake variables. Remove the direct nSys_ToteInfoComp writes from unload step 25 and let the iToteInfoCompleteHandshake state machine be the single writer.'
+  },
+  {
+    id:7, sev:'medium',
+    title:'Manual Mode Inner IF Duplicates the Outer Mode Guard — Redundant Nesting',
+    desc:'The outer manual mode block already checks bOptifillMachineInManualMode AND NOT bOptiFillMachineInAutoMode. Inside it, the lane jog section adds an identical nested IF with the same two conditions before the iStep CASE. This double-guarding adds no safety and suggests the inner block was copy-pasted from a different context. It also makes it harder to see where the manual CASE actually begins.',
+    old:
+`// Outer guard:
+IF bOptifillMachineInManualMode AND NOT bOptiFillMachineInAutoMode
+    AND NOT bResetRequired_Capper THEN
+  // ...gate logic...
+
+  // Inner REDUNDANT guard:
+  IF bOptiFillMachineInManualMode AND NOT bOptiFillMachineInAutoMode THEN
+    IF bMovetoLocation THEN
+      // ...lane jog...
+    END_IF;
+    CASE iStep OF ...
+    END_CASE;
+  END_IF;  // ← redundant
+
+END_IF;`,
+    fix:
+`// Remove the inner duplicate guard entirely:
+IF bOptifillMachineInManualMode AND NOT bOptiFillMachineInAutoMode
+    AND NOT bResetRequired_Capper THEN
+  // ...gate logic...
+
+  IF bMovetoLocation THEN
+    // ...lane jog...
+  END_IF;
+
+  CASE iStep OF ...
+  END_CASE;
+
+END_IF;`,
+    note:'Remove the inner redundant mode guard. The outer IF already provides the same protection — the inner one just adds indentation and confusion.'
+  },
+  {
+    id:8, sev:'low',
+    title:'nSorterStepsTaken Reset in Two Places — Auto Step 0 and Global Top-Level Block',
+    desc:'nSorterStepsTaken := 0 appears at the top of the POU (after the "test" trigger block) and also inside auto mode iSorterStep = 0. The top-level reset fires unconditionally every scan when iSorterStep = 0, which means the step counter is also cleared whenever the auto mode block is not executing (e.g. during manual mode). This was previously noted as a general issue in this POU — it still remains.',
+    old:
+`// Top of POU (runs every scan):
+IF iSorterStep = 0 THEN
+  nSorterStepsTaken := 0;   // unconditional reset
+END_IF
+
+// Auto mode iSorterStep CASE step 0:
+0:
+  nSorterStepsTaken := 0;   // also reset here`,
+    fix:
+`// Remove the top-of-POU unconditional reset.
+// Only reset inside the auto CASE step 0:
+0:
+  nSorterStepsTaken := 0;
+  tForceHomePulse(IN:= FALSE);
+  bSorterGotStuck := FALSE;
+  // ...rest of step 0...`,
+    note:'Remove the global top-level reset and let auto mode step 0 be the single owner of nSorterStepsTaken := 0.'
+  },
+  {
+    id:9, sev:'low',
+    title:'Unload Step 30 — bCloseSorterGate Used as a Transition Condition It Just Set',
+    desc:'In unload step 30, the code sets bCloseSorterGate := TRUE and then immediately checks IF bCloseSorterGate to advance to step 0. Since the flag was just set in the same scan, the condition is always true and the step advances on every scan it is entered. This makes the step 30 code misleading — the intent is presumably to wait for the gate to physically close (a sensor), not to re-read a variable the PLC just wrote.',
+    old:
+`30:
+  bStartUnloadSorter := FALSE;
+  bOpenSorterGate := FALSE;
+  bCloseSorterGate := TRUE;       // we just set this...
+  ConvInterFaceWrite.InductCmplt := TRUE;
+  Current_Tote_Number := 0;
+  IF bCloseSorterGate THEN        // ...so this is always TRUE
+    bSorterUnloadReady := FALSE;
+    iSorterUnloadStep := 0;
+  END_IF`,
+    fix:
+`30:
+  bStartUnloadSorter := FALSE;
+  bOpenSorterGate := FALSE;
+  bCloseSorterGate := TRUE;
+  ConvInterFaceWrite.InductCmplt := TRUE;
+  Current_Tote_Number := 0;
+  // Wait for the physical gate-closed sensor, not the command bit:
+  IF bBottleSorterGateClosed THEN
+    bSorterUnloadReady := FALSE;
+    iSorterUnloadStep := 0;
+  END_IF`,
+    note:'Replace IF bCloseSorterGate with IF bBottleSorterGateClosed (or whatever the physical gate-closed sensor is) so the step actually waits for mechanical confirmation before resetting.'
+  },
+  {
+    id:10, sev:'low',
+    title:'Large Block of Commented-Out Code Should Be Removed',
+    desc:'There is a large block of commented-out legacy lane-decision logic at the bottom of the iDecideLane section (~60 lines) and a commented-out iReadyToInduct CASE at the end. These are superseded by the active iDecideLane state machine above them. Dead commented code makes the POU significantly harder to read and maintain, and risks being accidentally un-commented during debugging.',
+    old:
+`// IF bWhichLaneToGo  THEN
+//    IF GoodBottleAtSorter THEN ...
+//    currentToteID := aFilledOrders[...]...
+//    FOR iCurrentOrder := 1 TO 6 DO
+//       ...old lane logic...
+//    END_FOR;
+// END_IF;
+// (60+ lines)
+
+// CASE iReadyToInduct OF
+//   0: ...
+//   10: ...
+// END_CASE`,
+    fix:
+`// Delete both commented blocks entirely.
+// The active iDecideLane CASE replaces the first block.
+// iReadyToInduct is labelled TBD and has no active callers.
+// If history is needed, it is preserved in source control.`,
+    note:'Delete both commented blocks. Use source control (Git) to preserve history. Keeping ~80 lines of commented code in a production POU is a maintenance liability.'
+  }
+];
+
+const SEV={high:{label:'HIGH',cls:'high'},medium:{label:'MED',cls:'medium'},low:{label:'LOW',cls:'low'}};
+let activeFilter='all',openId=null;
+function count(s){return issues.filter(i=>i.sev===s).length;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderFilters(){
+  const f=document.getElementById('filters');
+  const btns=[
+    {key:'all',label:`All  ${issues.length}`,cls:activeFilter==='all'?'f-all':''},
+    {key:'high',label:`🔴 High  ${count('high')}`,cls:activeFilter==='high'?'f-high':''},
+    {key:'medium',label:`🟡 Medium  ${count('medium')}`,cls:activeFilter==='medium'?'f-medium':''},
+    {key:'low',label:`🔵 Low  ${count('low')}`,cls:activeFilter==='low'?'f-low':''},
+  ];
+  f.innerHTML=btns.map(b=>`<button class="filter-btn ${b.cls}" onclick="setFilter('${b.key}')">${b.label}</button>`).join('');
+}
+function setFilter(f){activeFilter=f;renderFilters();renderMain();}
+function toggleCard(id){openId=openId===id?null:id;renderMain();}
+function copyCode(id,side){
+  const iss=issues.find(i=>i.id===id);
+  navigator.clipboard.writeText(side==='old'?iss.old:iss.fix).then(()=>{
+    const btn=document.getElementById(`cp-${id}-${side}`);
+    if(!btn)return;
+    btn.textContent='✓ copied';btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent='copy';btn.classList.remove('ok');},1600);
+  });
+}
+function renderMain(){
+  const m=document.getElementById('main');
+  const visible=activeFilter==='all'?issues:issues.filter(i=>i.sev===activeFilter);
+  const sections=[
+    {key:'high',label:'Critical — Fix Immediately'},
+    {key:'medium',label:'Important — Fix Soon'},
+    {key:'low',label:'Cleanup — Low Priority'},
+  ];
+  let html='';
+  for(const sec of sections){
+    const items=visible.filter(i=>i.sev===sec.key);
+    if(!items.length)continue;
+    const dot=sec.key==='high'?'🔴':sec.key==='medium'?'🟡':'🔵';
+    html+=`<div class="section-label">${dot} ${sec.label}</div>`;
+    for(const iss of items){
+      const s=SEV[iss.sev];
+      const isOpen=openId===iss.id;
+      html+=`
+      <div class="card sev-${iss.sev} ${isOpen?'open':''}" id="card-${iss.id}">
+        <div class="card-header" onclick="toggleCard(${iss.id})">
+          <span class="badge ${s.cls}">${s.label}</span>
+          <span class="issue-num">#${iss.id}</span>
+          <span class="issue-title">${iss.title}</span>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="card-body">
+          <div class="desc">${iss.desc}</div>
+          <div class="diff">
+            <div class="pane old">
+              <div class="pane-hdr">
+                <span class="pane-label">✗  BEFORE</span>
+                <button class="copy-btn" id="cp-${iss.id}-old" onclick="copyCode(${iss.id},'old')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.old)}</pre>
+            </div>
+            <div class="pane new">
+              <div class="pane-hdr">
+                <span class="pane-label">✓  AFTER</span>
+                <button class="copy-btn" id="cp-${iss.id}-fix" onclick="copyCode(${iss.id},'fix')">copy</button>
+              </div>
+              <pre class="pane-code">${esc(iss.fix)}</pre>
+            </div>
+          </div>
+          <div class="fix-note"><strong>💡 FIX: </strong>${iss.note}</div>
+        </div>
+      </div>`;
+    }
+  }
+  m.innerHTML=html;
+}
+renderFilters();
+renderMain();
+</script>
+</body>
+</html>
